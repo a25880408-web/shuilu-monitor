@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>水陸直播總控</title>
+<style>
+/* 控制室深色版面：畫面為主；每格上方一條狀態列（綠＝在播、黃＝緩衝／暫停、紅＝異常、灰＝等待開播），正在聽聲音的那格框青色 */
+:root{
+  --bg:#0d1015; --panel:#161a21; --panel2:#1d222b; --line:#28303b; --fg:#e8ebf0; --muted:#8c95a4;
+  --accent:#45c3ff; --ok:#3ccb73; --warn:#eab33c; --bad:#f15454; --idle:#5f6875;
+  --font:"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.4 var(--font);display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);
+  padding-block:8px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.spacer{flex:1}
+#sum{font-size:13px;color:var(--muted);white-space:nowrap}
+#sum b{color:var(--fg)}
+#sum .bad{color:var(--bad)}
+#clock{font-variant-numeric:tabular-nums;font-size:20px;font-weight:700;letter-spacing:.03em}
+button,.btn{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center}
+button:hover,.btn:hover{border-color:#46505f}
+button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tabs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg);font-weight:700}
+main{flex:1;min-height:0;overflow:auto;padding:10px}
+.grid{display:grid;gap:10px;justify-content:center;align-content:center;min-height:100%}
+.tile{background:var(--panel);border:2px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.tile.audio{border-color:var(--accent)}
+.bar{display:flex;align-items:center;gap:6px;padding:0 6px;height:34px;min-width:0;border-top:4px solid var(--idle)}
+.tile[data-s="ok"] .bar{border-top-color:var(--ok)}
+.tile[data-s="warn"] .bar{border-top-color:var(--warn)}
+.tile[data-s="bad"] .bar{border-top-color:var(--bad)}
+.num{font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:var(--muted);min-width:1.2em;text-align:center}
+.tile{container-type:inline-size}
+.name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:3.2em;max-width:45%}
+@container (max-width:380px){ .vt{display:none} .tools{gap:3px} .tools button,.tools .btn{padding:2px 5px} }
+.chip{font-size:12px;font-weight:700;padding:1px 7px;border-radius:99px;white-space:nowrap;background:var(--idle);color:#0b0d10;flex:none}
+.tile[data-s="ok"] .chip{background:var(--ok)}
+.tile[data-s="warn"] .chip{background:var(--warn)}
+.tile[data-s="bad"] .chip{background:var(--bad);color:#fff}
+.vt{flex:1 1 0;min-width:0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tools{display:flex;gap:4px;flex:none}
+.tools button,.tools .btn{padding:2px 8px;font-size:12px}
+.tools button.on{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
+.dup{background:var(--bad);color:#fff;font-size:12px;font-weight:700;padding:2px 8px}
+.video{position:relative;aspect-ratio:16/9;background:#000;max-width:100%}
+.video iframe,.video .ph{position:absolute;inset:0;width:100%;height:100%;border:0}
+.msg{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:16px;background:rgba(8,10,14,.86);font-size:13px}
+.tile.max{position:fixed;inset:0;z-index:50;border-radius:0;border-width:0}
+.tile.max .video{flex:1;aspect-ratio:auto}
+.empty{max-width:34em;margin:auto;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:12px;align-items:center;padding:40px 16px}
+.empty b{color:var(--fg);font-size:16px}
+.banner{background:var(--bad);color:#fff;padding:8px 12px;font-weight:700}
+dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;width:min(560px,calc(100vw - 32px));padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h2{margin:0 0 6px;font-size:16px}
+dialog p{margin:0 0 10px;color:var(--muted);font-size:13px}
+dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font:13px/1.5 var(--font)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+#parseInfo{font-size:12px;color:var(--muted);flex:1;min-width:12em}
+.primary{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-weight:700;z-index:60}
+@media (max-width:700px){
+  #clock{font-size:16px}
+  .vt{display:none}
+  main{padding:8px}
+}
+</style>
+</head>
+<body>
+<div id="fileBanner" class="banner" hidden>這樣打開看不到影片：請在 Finder 點兩下同資料夾的「開總控頁.command」，用它開的網頁才看得到。</div>
+<header>
+  <h1>水陸直播總控</h1>
+  <div class="tabs" id="tabs"></div>
+  <div class="spacer"></div>
+  <span id="sum"></span>
+  <button id="muteAll" title="快捷鍵 0">全部靜音</button>
+  <button id="reloadAll">全部重載</button>
+  <button id="editBtn">編輯網址</button>
+  <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
+  <span id="clock">--:--:--</span>
+</header>
+<main id="main"><div class="grid" id="grid"></div></main>
+
+<dialog id="editor">
+  <h2>編輯網址</h2>
+  <p>把 LINE 上的網址清單整段貼進來：一行壇名、下一行網址（同一行「總壇：網址」也可以）。沒接網址的那一行會當成分組標題，例如「1120正式上線網址」。</p>
+  <textarea id="editText" spellcheck="false"></textarea>
+  <div class="row">
+    <span id="parseInfo"></span>
+  </div>
+  <div class="row">
+    <button id="resetBtn">還原預設清單</button>
+    <button id="shareBtn" hidden>複製分享連結</button>
+    <span class="spacer"></span>
+    <button id="cancelBtn">取消</button>
+    <button id="applyBtn" class="primary">套用</button>
+  </div>
+</dialog>
+<div id="toast" hidden></div>
+
+<script src="streams.js"></script>
+<script>
+'use strict';
+const LS_TEXT = 'shuilu-mv-text', LS_VIEW = 'shuilu-mv-view', ALL = '全部';
+const ONLINE_URL = 'https://a25880408-web.github.io/shuilu-monitor/';  // 上網版（GitHub Pages）；網址清單放在 # 後面，不會存到 GitHub
+const DEFAULT_TEXT = (window.DEFAULT_STREAMS || '').trim();
+const $ = id => document.getElementById(id);
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k,v){ try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch(e){} }
+
+/* ---------- 解析 LINE 格式的網址清單 ---------- */
+const URL_RE = /(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com|youtu\.be)\/\S+/i;
+function extractId(u){
+  const m = u.match(/youtu\.be\/([\w-]{11})/i) || u.match(/[?&]v=([\w-]{11})/) || u.match(/\/(?:live|embed|shorts|v)\/([\w-]{11})/i);
+  return m ? m[1] : null;
+}
+const cleanName = s => s.replace(/^[\s:：]+|[\s:：]+$/g, '').trim();
+const cleanGroup = s => cleanName(s).replace(/網址$/, '').trim() || cleanName(s);
+function parse(text){
+  const items = [], bad = [];
+  let group = '', pending = null;
+  for (const raw of String(text).split(/\r?\n/)){
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(URL_RE);
+    if (!m){ if (pending !== null) group = cleanGroup(pending); pending = line; continue; }
+    const before = cleanName(line.slice(0, m.index));
+    let name;
+    if (before){ if (pending !== null) group = cleanGroup(pending); name = before; }
+    else name = pending !== null ? cleanName(pending) : '';
+    pending = null;
+    const id = extractId(m[0]);
+    if (!id){ bad.push(line); continue; }
+    items.push({ group: group || '清單', name: name || ('畫面' + (items.length + 1)), id });
+  }
+  return { items, bad };
+}
+
+/* ---------- 分享連結（網址清單放在 # 後面，不會送到伺服器） ---------- */
+function enc(s){ const b = new TextEncoder().encode(s); let bin = ''; b.forEach(x => bin += String.fromCharCode(x)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function dec(s){ s = s.replace(/-/g,'+').replace(/_/g,'/'); const bin = atob(s); return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))); }
+
+/* ---------- 狀態 ---------- */
+let text = DEFAULT_TEXT, items = [], view = ALL, players = {}, apiReady = false, apiFailed = false;
+
+function loadText(){
+  if (location.hash.startsWith('#list=')){
+    try { text = dec(location.hash.slice(6)); lsSet(LS_TEXT, text); } catch(e){}
+    history.replaceState(null, '', location.pathname + location.search);
+    return;
+  }
+  const saved = lsGet(LS_TEXT);
+  if (saved !== null) text = saved;
+}
+function groups(){ return [...new Set(items.map(i => i.group))]; }
+function visible(){ return items.map((it, idx) => ({ ...it, key: 'k' + idx })).filter(it => view === ALL || it.group === view); }
+
+/* ---------- 畫面 ---------- */
+function renderTabs(){
+  const gs = groups(), tabs = $('tabs');
+  tabs.textContent = '';
+  if (gs.length > 1) gs.unshift(ALL);
+  if (!gs.includes(view)) view = gs.includes(ALL) ? ALL : (gs[0] || ALL);
+  if (gs.length <= 1){ return; }
+  for (const g of gs){
+    const b = document.createElement('button');
+    const n = g === ALL ? items.length : items.filter(i => i.group === g).length;
+    b.textContent = `${g}（${n}）`;
+    b.className = g === view ? 'on' : '';
+    b.onclick = () => { view = g; lsSet(LS_VIEW, g); renderTabs(); renderGrid(); };
+    tabs.appendChild(b);
+  }
+}
+
+function destroyPlayers(){
+  for (const s of Object.values(players)){ try { s.p && s.p.destroy(); } catch(e){} }
+  players = {};
+}
+
+function renderGrid(){
+  destroyPlayers();
+  const grid = $('grid');
+  grid.textContent = '';
+  const vis = visible();
+  if (!vis.length){
+    grid.style.gridTemplateColumns = '1fr';
+    const d = document.createElement('div');
+    d.className = 'empty';
+    d.innerHTML = '<b>還沒有網址</b><span>按「編輯網址」，把 LINE 上的網址清單整段貼進來。</span>';
+    const b = document.createElement('button'); b.className = 'primary'; b.textContent = '編輯網址'; b.onclick = openEditor;
+    d.appendChild(b); grid.appendChild(d); updateSummary(); return;
+  }
+  const count = {}; items.forEach(i => (count[i.id] = (count[i.id] || []).concat(i.name)));
+  vis.forEach((it, n) => {
+    const t = document.createElement('div');
+    t.className = 'tile'; t.dataset.key = it.key; t.dataset.s = 'idle';
+    t.innerHTML = `<div class="bar"><span class="num"></span><span class="name"></span><span class="chip">載入中</span><span class="vt"></span>
+      <span class="tools"><button data-act="audio" title="只聽這一格（快捷鍵 ${n+1}）">聲音</button><button data-act="max">放大</button><button data-act="reload">重載</button><a class="btn" target="_blank" rel="noopener" title="在 YouTube 打開這一格">↗</a></span></div>
+      <div class="dup" hidden></div><div class="video"><div class="ph"></div><div class="msg" hidden></div></div>`;
+    t.querySelector('.num').textContent = n + 1;
+    t.querySelector('.name').textContent = it.name;
+    t.querySelector('.name').title = `${it.group}｜${it.name}`;
+    t.querySelector('a.btn').href = 'https://www.youtube.com/watch?v=' + it.id;
+    if (view === ALL && groups().length > 1) t.querySelector('.vt').textContent = it.group;
+    const others = count[it.id].filter(x => x !== it.name);
+    if (count[it.id].length > 1){
+      const d = t.querySelector('.dup'); d.hidden = false;
+      d.textContent = `⚠ 這格跟「${others.join('、') || it.name}」是同一個網址，請確認`;
+    }
+    t.addEventListener('click', e => {
+      const b = e.target.closest('button[data-act]'); if (!b) return;
+      const a = b.dataset.act;
+      if (a === 'audio') solo(it.key);
+      else if (a === 'max') toggleMax(t);
+      else if (a === 'reload') reloadOne(it.key);
+    });
+    grid.appendChild(t);
+    players[it.key] = { item: it, tile: t, p: null, err: null, lastT: null, stall: 0, buf: 0, title: '' };
+  });
+  layout();
+  buildPlayers();
+  updateSummary();
+}
+
+function layout(){
+  const main = $('main'), grid = $('grid');
+  const n = grid.querySelectorAll('.tile').length;
+  if (!n) return;
+  const gap = 10, barH = 42;
+  const W = main.clientWidth - 20, H = main.clientHeight - 20;
+  if (W < 640){ grid.style.gridTemplateColumns = '1fr'; return; }
+  let best = { w: 0, c: 1 };
+  for (let c = 1; c <= n; c++){
+    const r = Math.ceil(n / c);
+    const w = Math.min((W - gap * (c - 1)) / c, ((H - gap * (r - 1)) / r - barH) * 16 / 9);
+    if (w > best.w) best = { w, c };
+  }
+  if (best.w < 300){ // 太小就改成可以往下捲
+    const c = Math.max(1, Math.floor((W + gap) / (300 + gap)));
+    best = { c, w: (W - gap * (c - 1)) / c };
+  }
+  grid.style.gridTemplateColumns = `repeat(${best.c}, ${Math.floor(best.w)}px)`;
+}
+
+/* ---------- YouTube 播放器 ---------- */
+window.onYouTubeIframeAPIReady = () => { apiReady = true; buildPlayers(); };
+function buildPlayers(){
+  if (!apiReady) return;
+  for (const s of Object.values(players)) if (!s.p) makePlayer(s);
+}
+function makePlayer(s){
+  const holder = s.tile.querySelector('.ph');
+  s.err = null; s.lastT = null; s.stall = 0; s.buf = 0;
+  s.p = new YT.Player(holder, {
+    videoId: s.item.id,
+    playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, origin: location.origin },
+    events: {
+      onReady: e => { try { e.target.mute(); e.target.playVideo(); } catch(_){} tick(); },
+      onStateChange: () => tick(),
+      onError: e => { s.err = e.data; tick(); }
+    }
+  });
+}
+function reloadOne(key){
+  const s = players[key]; if (!s) return;
+  const wasAudio = s.p && s.p.isMuted && !s.p.isMuted();
+  try { s.p && s.p.destroy(); } catch(e){}
+  const v = s.tile.querySelector('.video');
+  v.querySelector('iframe, .ph') && v.querySelector('iframe, .ph').remove();
+  const ph = document.createElement('div'); ph.className = 'ph'; v.prepend(ph);
+  s.p = null;
+  if (apiReady) makePlayer(s);
+  if (wasAudio) setTimeout(() => solo(key), 1500);
+}
+function muted(s){ try { return !s.p || !s.p.isMuted || s.p.isMuted(); } catch(e){ return true; } }
+function solo(key){
+  const target = players[key];
+  if (target && !muted(target)){ muteAll(); return; }
+  for (const [k, s] of Object.entries(players)){
+    try { if (k === key){ s.p.unMute(); s.p.playVideo(); } else s.p.mute(); } catch(e){}
+  }
+  setTimeout(tick, 150);
+}
+function muteAll(){ for (const s of Object.values(players)){ try { s.p.mute(); } catch(e){} } setTimeout(tick, 150); }
+function toggleMax(t){
+  const on = !t.classList.contains('max');
+  document.querySelectorAll('.tile.max').forEach(x => { x.classList.remove('max'); x.querySelector('[data-act=max]').textContent = '放大'; });
+  if (on){ t.classList.add('max'); t.querySelector('[data-act=max]').textContent = '縮回'; }
+}
+
+const ERR = { 2: '網址的影片代碼不對', 5: '播放器出錯，按「重載」', 100: '找不到影片，或設成私人', 101: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 150: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 153: '要用「開總控頁.command」開才看得到' };
+
+function statusOf(s, now){
+  if (apiFailed) return ['bad', '連不到 YouTube'];
+  if (s.err != null) return ['bad', '錯誤'];
+  if (!s.p || !s.p.getPlayerState) return ['idle', '載入中'];
+  let st; try { st = s.p.getPlayerState(); } catch(e){ return ['idle', '載入中']; }
+  let live = false; try { const d = s.p.getVideoData(); live = !!(d && d.isLive); s.title = (d && d.title) || ''; } catch(e){}
+  if (st === 1){
+    let t = null; try { t = s.p.getCurrentTime(); } catch(e){}
+    if (t !== null && s.lastT !== null && Math.abs(t - s.lastT) < 0.01){ if (!s.stall) s.stall = now; } else s.stall = 0;
+    s.lastT = t; s.buf = 0;
+    if (s.stall && now - s.stall > 8000) return ['bad', '畫面停住'];
+    return ['ok', live ? '直播中' : '播放中'];
+  }
+  s.lastT = null; s.stall = 0;
+  if (st === 3){ if (!s.buf) s.buf = now; const sec = Math.round((now - s.buf) / 1000); return [sec > 10 ? 'bad' : 'warn', sec > 3 ? `緩衝 ${sec} 秒` : '緩衝中']; }
+  s.buf = 0;
+  if (st === 0) return ['bad', '已結束'];
+  if (st === 2) return ['warn', '已暫停'];
+  return ['idle', '等待開播'];
+}
+
+function tick(){
+  const now = Date.now();
+  for (const s of Object.values(players)){
+    const [cls, label] = statusOf(s, now);
+    const t = s.tile;
+    t.dataset.s = cls;
+    t.querySelector('.chip').textContent = label;
+    const vt = t.querySelector('.vt');
+    const grp = view === ALL && groups().length > 1 ? s.item.group : '';
+    vt.textContent = [grp, s.title].filter(Boolean).join('｜');
+    vt.title = s.title;
+    const msg = t.querySelector('.msg');
+    if (s.err != null || apiFailed){
+      msg.hidden = false;
+      msg.textContent = apiFailed ? '連不到 YouTube，請檢查網路' : (ERR[s.err] || ('播放器錯誤代碼 ' + s.err));
+    } else msg.hidden = true;
+    const on = !muted(s);
+    t.classList.toggle('audio', on);
+    const ab = t.querySelector('[data-act=audio]');
+    ab.classList.toggle('on', on);
+    ab.textContent = on ? '聲音開' : '聲音';
+  }
+  updateSummary();
+}
+
+function updateSummary(){
+  const ss = Object.values(players);
+  if (!ss.length){ $('sum').textContent = ''; return; }
+  let ok = 0, bad = 0;
+  ss.forEach(s => { const c = s.tile.dataset.s; if (c === 'ok') ok++; else if (c === 'bad') bad++; });
+  const listen = ss.find(s => !muted(s));
+  $('sum').innerHTML = `在播 <b>${ok}</b>／${ss.length}` + (bad ? `　<span class="bad">異常 ${bad}</span>` : '') + `　聽：<b></b>`;
+  $('sum').querySelector('b:last-child').textContent = listen ? listen.item.name : '靜音';
+}
+
+/* ---------- 編輯網址 ---------- */
+function showParseInfo(){
+  const { items: it, bad } = parse($('editText').value);
+  const gs = [...new Set(it.map(i => i.group))];
+  let s = `看得懂 ${it.length} 個網址` + (gs.length ? `，分 ${gs.length} 組：${gs.join('、')}` : '');
+  if (bad.length) s += `。有 ${bad.length} 行網址看不懂：${bad.join('；')}`;
+  $('parseInfo').textContent = s;
+}
+function openEditor(){ $('editText').value = text; showParseInfo(); $('editor').showModal(); }
+$('editText').addEventListener('input', showParseInfo);
+$('editBtn').onclick = openEditor;
+$('cancelBtn').onclick = () => $('editor').close();
+$('resetBtn').onclick = () => { $('editText').value = DEFAULT_TEXT; showParseInfo(); };
+$('applyBtn').onclick = () => {
+  text = $('editText').value.trim();
+  lsSet(LS_TEXT, text === DEFAULT_TEXT ? null : text);
+  $('editor').close();
+  apply();
+  toast('已套用');
+};
+const IS_LOCAL = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+function shareUrl(t){ return (IS_LOCAL ? ONLINE_URL : location.origin + location.pathname) + '#list=' + enc(t.trim()); }
+async function copyLink(t, where){
+  const url = shareUrl(t);
+  try { await navigator.clipboard.writeText(url); toast('手機連結已複製，貼到 LINE 就能用'); return; } catch(e){}
+  openEditor(); $('editText').value = url; $('editText').select(); toast('請按 ⌘C 複製框裡的連結（複製完按取消）');
+}
+$('shareBtn').hidden = false;
+$('shareBtn').textContent = '複製手機連結';
+$('shareBtn').onclick = () => copyLink($('editText').value);
+$('linkBtn').onclick = () => copyLink(text);
+if (!DEFAULT_TEXT) $('resetBtn').hidden = true;
+
+function toast(s){ const t = $('toast'); t.textContent = s; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 1800); }
+
+/* ---------- 其他 ---------- */
+$('muteAll').onclick = muteAll;
+$('reloadAll').onclick = () => Object.keys(players).forEach(reloadOne);
+document.addEventListener('keydown', e => {
+  const el = e.target instanceof Element ? e.target : null;
+  if (el && el.closest('textarea, input, dialog')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Escape'){ const m = document.querySelector('.tile.max'); if (m) toggleMax(m); return; }
+  if (e.key === '0' || e.key.toLowerCase() === 'm'){ muteAll(); return; }
+  if (/^[1-9]$/.test(e.key)){ const t = $('grid').querySelectorAll('.tile')[+e.key - 1]; if (t) solo(t.dataset.key); }
+});
+window.addEventListener('resize', () => { clearTimeout(layout.h); layout.h = setTimeout(layout, 120); });
+setInterval(() => { const d = new Date(); $('clock').textContent = d.toLocaleTimeString('zh-TW', { hour12: false }); }, 500);
+setInterval(tick, 2000);
+
+// 螢幕不要自己暗掉（瀏覽器允許才有效）
+let wake = null;
+async function keepAwake(){ try { if (navigator.wakeLock && document.visibilityState === 'visible') wake = await navigator.wakeLock.request('screen'); } catch(e){} }
+document.addEventListener('visibilitychange', keepAwake);
+keepAwake();
+
+function apply(){
+  items = parse(text).items;
+  const savedView = lsGet(LS_VIEW);
+  if (savedView) view = savedView;
+  renderTabs();
+  renderGrid();
+}
+
+if (location.protocol === 'file:') $('fileBanner').hidden = false;
+loadText();
+apply();
+
+const api = document.createElement('script');
+api.src = 'https://www.youtube.com/iframe_api';
+api.onerror = () => { apiFailed = true; tick(); };
+document.head.appendChild(api);
+</script>
+</body>
+</html>
