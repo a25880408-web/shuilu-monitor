@@ -14,6 +14,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}  /* 不加這行，.msg、按鈕的 display 會蓋過 hidden，錯誤底板會一直壓在畫面上（11/20 每格偏暗的原因） */
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:14px/1.4 var(--font);display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);
@@ -41,6 +42,7 @@ main{flex:1;min-height:0;overflow:auto;padding:10px}
 .tile{container-type:inline-size}
 .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:3.2em;max-width:45%}
 @container (max-width:380px){ .vt{display:none} .tools{gap:3px} .tools button,.tools .btn{padding:2px 5px} }
+@container (max-width:330px){ .num{display:none} .bar{gap:4px;padding:0 4px} .chip{font-size:11px;padding:1px 5px} .tools button,.tools .btn{padding:2px 4px;font-size:11px} }
 .chip{font-size:12px;font-weight:700;padding:1px 7px;border-radius:99px;white-space:nowrap;background:var(--idle);color:#0b0d10;flex:none}
 .tile[data-s="ok"] .chip{background:var(--ok)}
 .tile[data-s="warn"] .chip{background:var(--warn)}
