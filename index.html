@@ -256,16 +256,23 @@ function buildPlayers(){
   if (!apiReady) return;
   for (const s of Object.values(players)) if (!s.p) makePlayer(s);
 }
+// 先用 youtube-nocookie.com（11/20 使用者的 Chrome 嵌 youtube.com 會錯誤 153、nocookie 正常），錯誤 153 就自動換另一個再試一次
+const HOSTS = ['https://www.youtube-nocookie.com', 'https://www.youtube.com'];
 function makePlayer(s){
   const holder = s.tile.querySelector('.ph');
   s.err = null; s.lastT = null; s.stall = 0; s.buf = 0;
+  if (s.hostIdx == null) s.hostIdx = 0;
   s.p = new YT.Player(holder, {
+    host: HOSTS[s.hostIdx],
     videoId: s.item.id,
     playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, origin: location.origin },
     events: {
       onReady: e => { try { e.target.mute(); e.target.playVideo(); } catch(_){} tick(); },
       onStateChange: () => tick(),
-      onError: e => { s.err = e.data; tick(); }
+      onError: e => {
+        if (e.data === 153 && !s.triedOther){ s.triedOther = true; s.hostIdx = 1 - s.hostIdx; reloadOne(s.item.key); return; }
+        s.err = e.data; tick();
+      }
     }
   });
 }
@@ -288,6 +295,8 @@ function solo(key){
     try { if (k === key){ s.p.unMute(); s.p.playVideo(); } else s.p.mute(); } catch(e){}
   }
   setTimeout(tick, 150);
+  // 瀏覽器不准出聲時會把影片暫停：改回靜音繼續播，請使用者直接按畫面上的喇叭
+  setTimeout(() => { try { if (target && target.p.getPlayerState() === 2 && !target.p.isMuted()){ target.p.mute(); target.p.playVideo(); toast('瀏覽器擋住出聲，請直接按這格畫面上的喇叭'); tick(); } } catch(e){} }, 1200);
 }
 function muteAll(){ for (const s of Object.values(players)){ try { s.p.mute(); } catch(e){} } setTimeout(tick, 150); }
 function toggleMax(t){
@@ -296,7 +305,7 @@ function toggleMax(t){
   if (on){ t.classList.add('max'); t.querySelector('[data-act=max]').textContent = '縮回'; }
 }
 
-const ERR = { 2: '網址的影片代碼不對', 5: '播放器出錯，按「重載」', 100: '找不到影片，或設成私人', 101: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 150: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 153: '要用「開總控頁.command」開才看得到' };
+const ERR = { 2: '網址的影片代碼不對', 5: '播放器出錯，按「重載」', 100: '找不到影片，或設成私人', 101: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 150: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 153: location.protocol === 'file:' ? '要用「開總控頁.command」開才看得到' : '這個瀏覽器擋住 YouTube 嵌入畫面，請換瀏覽器，或按右上「↗」到 YouTube 看' };
 
 function statusOf(s, now){
   if (apiFailed) return ['bad', '連不到 YouTube'];
