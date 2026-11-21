@@ -68,6 +68,7 @@ dialog p{margin:0 0 10px;color:var(--muted);font-size:13px}
 dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font:13px/1.5 var(--font)}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
 #parseInfo{font-size:12px;color:var(--muted);flex:1;min-width:12em}
+#autoBtn:not(.on){color:var(--warn);border-color:var(--warn)}  /* 關掉時用黃色提醒 */
 .primary{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-weight:700;z-index:60}
 @media (max-width:700px){
@@ -89,8 +90,9 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="editBtn">編輯網址</button>
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
+  <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
   <span id="clock">--:--:--</span>
-  <span id="ver">11/21-2</span>
+  <span id="ver">11/21-3</span>
 </header>
 <main id="main"><div class="grid" id="grid"></div></main>
 
@@ -281,8 +283,9 @@ function makePlayer(s){
     }
   });
 }
-function reloadOne(key){
+function reloadOne(key, auto){
   const s = players[key]; if (!s) return;
+  if (!auto){ s.autoN = 0; s.nextAutoAt = 0; }  // 手動重載：自動重載的間隔從頭算
   const wasAudio = s.p && s.p.isMuted && !s.p.isMuted();
   try { s.p && s.p.destroy(); } catch(e){}
   const v = s.tile.querySelector('.video');
@@ -354,6 +357,55 @@ function autoResume(now){
     } else s.pausedSince = 0;
   }
 }
+/* ---------- 自動重載：播放器卡在某個狀態不會自己好（直播斷過再接上、還沒開播就打開、網路卡太久），持續一陣子就重載那一格 ---------- */
+// 同一格連續自動重載，間隔越來越長（30 秒、1 分、2 分…，最多 5 分鐘；停住、緩衝、等待開播、載入最多 2 分鐘），正常播 1 分鐘後歸零。
+// 每 2 秒最多重載一格（網路斷掉時九格不會同時重來）。分頁在背景、剛切回來 15 秒內不動（背景時瀏覽器可能讓影片停住，不算異常）。
+const LS_AUTO = 'shuilu-mv-auto';
+let autoOn = lsGet(LS_AUTO) !== '0', visibleSince = Date.now(), lastAutoAt = 0;
+const AUTO = {  // 種類: [持續多久才重載（毫秒）, 間隔上限（毫秒）, 說明]
+  ended: [20000, 300000, '已結束'],
+  stall: [15000, 120000, '畫面停住'],
+  buf:   [20000, 120000, '緩衝太久'],
+  wait:  [60000, 120000, '等待開播太久'],
+  load:  [45000, 120000, '載入太久'],
+  err:   [10000, 300000, '播放器出錯'],
+};
+function problemOf(s){
+  if (apiFailed || !s.p) return null;
+  if (s.err === 5) return 'err';      // 其他錯誤代碼（網址錯、不允許嵌入）重載也沒用
+  if (s.err != null) return null;
+  if (!s.p.getPlayerState) return 'load';
+  let st; try { st = s.p.getPlayerState(); } catch(e){ return null; }
+  if (st === 0) return 'ended';
+  if (st === 1) return s.stall ? 'stall' : null;
+  if (st === 3) return 'buf';
+  if (st === 2) return null;          // 暫停交給上面的自動續播
+  return 'wait';
+}
+function autoReload(now){
+  const quiet = !autoOn || document.visibilityState !== 'visible' || now - visibleSince < 15000;
+  let done = now - lastAutoAt < 2000;  // tick 也會被播放器事件叫到，用時間擋，確保每 2 秒最多一格
+  for (const s of Object.values(players)){
+    if (s.tile.dataset.s === 'ok'){ if (!s.okSince) s.okSince = now; if (now - s.okSince > 60000) s.autoN = 0; }
+    else s.okSince = 0;
+    const kind = quiet ? null : problemOf(s);
+    if (kind !== s.probKind){ s.probKind = kind; s.probSince = now; }
+    if (!kind || done) continue;
+    const [need, cap, why] = AUTO[kind];
+    if (now - s.probSince < need || now < (s.nextAutoAt || 0)) continue;
+    s.autoN = (s.autoN || 0) + 1;
+    s.autoTotal = (s.autoTotal || 0) + 1;
+    s.nextAutoAt = now + Math.min(cap, 30000 * 2 ** (s.autoN - 1));
+    s.autoLast = new Date(now).toLocaleTimeString('zh-TW', { hour12: false }) + ' ' + why;
+    s.probKind = null;
+    lastAutoAt = now;
+    reloadOne(s.item.key, true);
+    toast(`「${s.item.name}」${why}，已自動重載`);
+    done = true;
+  }
+}
+function renderAutoBtn(){ $('autoBtn').textContent = autoOn ? '自動重載：開' : '自動重載：關'; $('autoBtn').classList.toggle('on', autoOn); }
+
 function playAll(){
   const now = Date.now();
   for (const s of Object.values(players)){
@@ -372,8 +424,9 @@ function tick(){
     t.querySelector('.chip').textContent = label;
     const vt = t.querySelector('.vt');
     const grp = view === ALL && groups().length > 1 ? s.item.group : '';
-    vt.textContent = [grp, s.title].filter(Boolean).join('｜');
-    vt.title = s.title;
+    const autoInfo = s.autoTotal ? `自動重載 ${s.autoTotal} 次` : '';
+    vt.textContent = [grp, autoInfo, s.title].filter(Boolean).join('｜');
+    vt.title = [s.title, s.autoTotal ? `自動重載 ${s.autoTotal} 次，最後一次 ${s.autoLast}` : ''].filter(Boolean).join('\n');
     const msg = t.querySelector('.msg');
     if (s.err != null || apiFailed){
       msg.hidden = false;
@@ -385,6 +438,7 @@ function tick(){
     ab.classList.toggle('on', on);
     ab.textContent = on ? '聲音開' : '聲音';
   }
+  autoReload(now);
   updateSummary();
 }
 
@@ -436,6 +490,8 @@ function toast(s){ const t = $('toast'); t.textContent = s; t.hidden = false; cl
 /* ---------- 其他 ---------- */
 $('muteAll').onclick = muteAll;
 $('playAll').onclick = playAll;
+$('autoBtn').onclick = () => { autoOn = !autoOn; lsSet(LS_AUTO, autoOn ? null : '0'); renderAutoBtn(); toast(autoOn ? '自動重載已打開' : '自動重載已關閉，要自己按「重載」'); };
+renderAutoBtn();
 $('reloadAll').onclick = () => Object.keys(players).forEach(reloadOne);
 document.addEventListener('keydown', e => {
   const el = e.target instanceof Element ? e.target : null;
@@ -452,7 +508,7 @@ setInterval(tick, 2000);
 // 螢幕不要自己暗掉（瀏覽器允許才有效）
 let wake = null;
 async function keepAwake(){ try { if (navigator.wakeLock && document.visibilityState === 'visible') wake = await navigator.wakeLock.request('screen'); } catch(e){} }
-document.addEventListener('visibilitychange', () => { keepAwake(); if (document.visibilityState === 'visible') setTimeout(playAll, 500); });
+document.addEventListener('visibilitychange', () => { keepAwake(); if (document.visibilityState === 'visible'){ visibleSince = Date.now(); setTimeout(playAll, 500); } });
 keepAwake();
 
 function apply(){
