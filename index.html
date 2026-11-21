@@ -69,6 +69,19 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
 #parseInfo{font-size:12px;color:var(--muted);flex:1;min-width:12em}
 #autoBtn:not(.on){color:var(--warn);border-color:var(--warn)}  /* 關掉時用黃色提醒 */
+#sum .warn{color:var(--warn)}
+/* 音量條：只有在 Mac 用「開總控頁.command」開才有（Mac 在背景抓每格直播的聲音）。
+   條＝每 0.1 秒的峰值（dBFS，−60～0），顏色分區跟 OBS 一樣：−20 以下綠、−20～−9 黃、−9 以上紅；白線＝最近 1.5 秒最高。
+   做法：底色整條是綠黃紅，用 i 從右邊蓋住沒亮的部分；b 是白線 */
+.lv{display:flex;align-items:center;gap:6px;height:21px;padding:0 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);flex:none}
+.lvbar{flex:1;height:7px;border-radius:4px;overflow:hidden;position:relative;min-width:40px;
+  background:linear-gradient(90deg,var(--ok) 0 66.67%,var(--warn) 66.67% 85%,var(--bad) 85%)}
+.lvbar i{position:absolute;right:0;top:0;bottom:0;width:100%;background:#05070a;transition:width .12s linear}
+.lvbar b{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-2px;background:#fff;opacity:.85;display:none}
+.lvtxt{white-space:nowrap;font-variant-numeric:tabular-nums}
+.lv.silent .lvtxt{color:var(--warn);font-weight:700}
+.lv.silent.long .lvtxt{color:var(--bad)}
+@container (max-width:330px){ .lvavg{display:none} }
 .primary{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-weight:700;z-index:60}
 @media (max-width:700px){
@@ -92,7 +105,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
   <span id="clock">--:--:--</span>
-  <span id="ver">11/21-3</span>
+  <span id="ver">11/21-8</span>
 </header>
 <main id="main"><div class="grid" id="grid"></div></main>
 
@@ -155,18 +168,91 @@ function parse(text){
 function enc(s){ const b = new TextEncoder().encode(s); let bin = ''; b.forEach(x => bin += String.fromCharCode(x)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function dec(s){ s = s.replace(/-/g,'+').replace(/_/g,'/'); const bin = atob(s); return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))); }
 
+// 短版手機連結（11/21-8 起）。三種寫法，打開時都換回 LINE 那種清單文字：
+//   #s=20261122.0EZJnwD6c9PQ1yGWOJwR_Gqs…   分組標題是「8 位數日期＋法會」、壇名都在 SHORT_NAMES 裡：一壇＝1 個代號＋11 字影片代碼，「.」隔開日期和各壇
+//   #m=（base64）                             其他清單：每組「#標題」一行、每壇「11 字代碼＋壇名」一行
+//   #list=（base64）                          11/21-7 以前的長連結：整份清單文字，照樣能開
+// SHORT_NAMES 只能往後加，不能改順序或刪（已經傳出去的短連結會對到別的壇）。
+const SHORT_NAMES = ['總壇', '大壇', '法華壇', '祈願壇', '地藏壇', '楞嚴壇', '瑜伽焰口壇', '華嚴壇', '藥師壇', '淨土壇'];
+const SHORT_CODES = '0123456789abcdefghijklmnopqrstuvwxyz';
+const ymd = (d = new Date()) => d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+function packList(t){
+  const byGroup = new Map();
+  for (const it of parse(t).items){ if (!byGroup.has(it.group)) byGroup.set(it.group, []); byGroup.get(it.group).push(it); }
+  // 前幾天的分組（標題開頭是比今天早的日期）不放進連結，除非正在看那一組；全部都是前幾天的就照放
+  let gs = [...byGroup.keys()];
+  const today = ymd(), kept = gs.filter(g => { const m = g.match(/^(\d{8})/); return !m || m[1] >= today || g === view; });
+  if (kept.length) gs = kept;
+  if (!gs.length) return null;
+  const short = [];
+  for (const g of gs){
+    const m = g.match(/^(\d{8})法會$/);
+    const codes = byGroup.get(g).map(it => { const i = SHORT_NAMES.indexOf(it.name); return i < 0 ? null : SHORT_CODES[i] + it.id; });
+    if (!m || codes.includes(null)){ short.length = 0; break; }
+    short.push(m[1], codes.join(''));
+  }
+  if (short.length) return 's=' + short.join('.');
+  const lines = [];
+  for (const g of gs){ lines.push('#' + g); byGroup.get(g).forEach(it => lines.push(it.id + it.name)); }
+  return 'm=' + enc(lines.join('\n'));
+}
+function listToText(groups){
+  return groups.map(([title, its]) => title + '\n\n' + its.map(([name, id]) => name + '：\nhttps://www.youtube.com/watch?v=' + id).join('\n\n')).join('\n\n');
+}
+function unpackList(h){   // 讀不懂回傳 null
+  try {
+    if (h.startsWith('#list=')) return dec(h.slice(6));
+    const out = [];
+    if (h.startsWith('#s=')){
+      const parts = h.slice(3).split('.');
+      for (let i = 0; i + 1 < parts.length; i += 2){
+        const date = parts[i], s = parts[i + 1], its = [];
+        if (!/^\d{8}$/.test(date) || !s || s.length % 12) return null;
+        for (let j = 0; j < s.length; j += 12){
+          const k = SHORT_CODES.indexOf(s[j]), id = s.slice(j + 1, j + 12);
+          if (k < 0 || k >= SHORT_NAMES.length || !/^[\w-]{11}$/.test(id)) return null;
+          its.push([SHORT_NAMES[k], id]);
+        }
+        out.push([date + '法會', its]);
+      }
+    } else if (h.startsWith('#m=')){
+      for (const line of dec(h.slice(3)).split('\n')){
+        if (line.startsWith('#')) out.push([line.slice(1), []]);
+        else if (/^[\w-]{11}./.test(line)){ if (!out.length) out.push(['清單', []]); out[out.length - 1][1].push([line.slice(11), line.slice(0, 11)]); }
+      }
+    } else return null;
+    return out.length ? listToText(out) : null;
+  } catch(e){ return null; }
+}
+const hasListHash = () => /^#(list|s|m)=/.test(location.hash);
+
 /* ---------- 狀態 ---------- */
 let text = DEFAULT_TEXT, items = [], view = ALL, players = {}, apiReady = false, apiFailed = false;
 
+// 預設清單（streams.js）換過時，這台瀏覽器之前貼的清單讓位給新的預設清單（總管每天更新 streams.js 後，Mac 上重新整理就換好）。
+// 用手機連結（#list=）帶進來的清單算使用者自己選的，不會被蓋掉，直到下一次 streams.js 再換。
+const LS_DEFSEEN = 'shuilu-mv-defseen';
+let defChanged = false, badLink = false;
 function loadText(){
-  if (location.hash.startsWith('#list=')){
-    try { text = dec(location.hash.slice(6)); lsSet(LS_TEXT, text); } catch(e){}
+  if (hasListHash()){
+    const t = unpackList(location.hash);
     history.replaceState(null, '', location.pathname + location.search);
-    return;
+    if (t){
+      text = t; lsSet(LS_TEXT, text);
+      if (DEFAULT_TEXT) lsSet(LS_DEFSEEN, DEFAULT_TEXT);
+      return;
+    }
+    badLink = true;   // 讀不懂：照平常一樣用這台之前的清單
   }
   const saved = lsGet(LS_TEXT);
-  if (saved !== null) text = saved;
+  if (saved !== null && DEFAULT_TEXT && lsGet(LS_DEFSEEN) !== DEFAULT_TEXT){
+    lsSet(LS_TEXT, null); text = DEFAULT_TEXT; defChanged = true;
+  } else if (saved !== null) text = saved;
+  if (DEFAULT_TEXT) lsSet(LS_DEFSEEN, DEFAULT_TEXT);
 }
+// 分組標題帶日期（例如「20261122法會」）：打開時先看今天那組；過了半夜自動換到新的一天那組
+const mmdd = (d = new Date()) => String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+function todayGroup(){ const k = mmdd(); return groups().find(g => g.includes(k)) || null; }
 function groups(){ return [...new Set(items.map(i => i.group))]; }
 function visible(){ return items.map((it, idx) => ({ ...it, key: 'k' + idx })).filter(it => view === ALL || it.group === view); }
 
@@ -211,7 +297,8 @@ function renderGrid(){
     t.className = 'tile'; t.dataset.key = it.key; t.dataset.s = 'idle';
     t.innerHTML = `<div class="bar"><span class="num"></span><span class="name"></span><span class="chip">載入中</span><span class="vt"></span>
       <span class="tools"><button data-act="audio" title="只聽這一格（快捷鍵 ${n+1}）">聲音</button><button data-act="max">放大</button><button data-act="reload">重載</button><a class="btn" target="_blank" rel="noopener" title="在 YouTube 打開這一格">↗</a></span></div>
-      <div class="dup" hidden></div><div class="video"><div class="ph"></div><div class="msg" hidden></div></div>`;
+      <div class="dup" hidden></div><div class="video"><div class="ph"></div><div class="msg" hidden></div></div>
+      <div class="lv" hidden><span class="lvbar"><i></i><b></b></span><span class="lvtxt">聲音準備中…</span><span class="lvavg"></span></div>`;
     t.querySelector('.num').textContent = n + 1;
     t.querySelector('.name').textContent = it.name;
     t.querySelector('.name').title = `${it.group}｜${it.name}`;
@@ -241,7 +328,7 @@ function layout(){
   const main = $('main'), grid = $('grid');
   const n = grid.querySelectorAll('.tile').length;
   if (!n) return;
-  const gap = 10, barH = 42;
+  const gap = 10, barH = 42 + (lvOn ? 21 : 0);
   const W = main.clientWidth - 20, H = main.clientHeight - 20;
   if (W < 640){ grid.style.gridTemplateColumns = '1fr'; return; }
   let best = { w: 0, c: 1 };
@@ -448,9 +535,77 @@ function updateSummary(){
   let ok = 0, bad = 0;
   ss.forEach(s => { const c = s.tile.dataset.s; if (c === 'ok') ok++; else if (c === 'bad') bad++; });
   const listen = ss.find(s => !muted(s));
-  $('sum').innerHTML = `在播 <b>${ok}</b>／${ss.length}` + (bad ? `　<span class="bad">異常 ${bad}</span>` : '') + `　聽：<b></b>`;
+  const quiet = lvOn ? new Set(ss.map(s => s.item.id).filter(id => lvData[id] && lvData[id].silent_s >= SILENT_WARN_S)).size : 0;
+  $('sum').innerHTML = `在播 <b>${ok}</b>／${ss.length}` + (bad ? `　<span class="bad">異常 ${bad}</span>` : '')
+    + (quiet ? `　<span class="warn">沒聲音 ${quiet}</span>` : '') + `　聽：<b></b>`;
   $('sum').querySelector('b:last-child').textContent = listen ? listen.item.name : '靜音';
 }
+
+/* ---------- 音量條：只有在這台 Mac 用「開總控頁.command」開才有 ----------
+   Mac 上的「總控伺服器.py」在背景替每格只抓直播的聲音（不抓畫面），算峰值（每 0.1 秒）和響度（LUFS）；這裡每 0.15 秒問一次。
+   量的是觀眾實際聽到的聲音，跟畫面一樣會比現場晚幾秒。上網版（手機）沒有這個伺服器，音量條不出現。 */
+const SILENT_WARN_S = 20, SILENT_BAD_S = 60;
+const LV_POLL_MS = 150, LV_FALL = 24, LV_HOLD_MS = 1500, LV_TXT_MS = 450;  // 條往下每秒掉 24 dB（往上立刻到）；白線停 1.5 秒；文字約半秒換一次
+const LV_STATE = { starting: '聲音連線中…', connecting: '聲音連線中…', reconnect: '聲音重新連線中…',
+  upcoming: '聲音：還沒開播', ended: '聲音：直播已結束', error: '抓不到聲音' };
+let lvOn = false, lvData = {}, lvFail = 0, lvTimer = null, lvBusy = false;
+const secText = s => s >= 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s} 秒`;
+const lvPct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+async function pollLevels(){
+  const ids = [...new Set(Object.values(players).map(s => s.item.id))];
+  if (!ids.length || lvBusy) return;  // 上一次還沒回來就先不問，避免堆積
+  lvBusy = true;
+  try {
+    const r = await fetch('/api/levels?ids=' + ids.join(','), { headers: { 'X-Shuilu': '1' }, cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    lvData = d.levels || {}; lvFail = 0;
+    if (!lvOn){ lvOn = true; layout(); }
+  } catch(e){
+    lvFail++;
+    if (!lvOn && lvFail >= 3){ clearInterval(lvTimer); lvTimer = null; lvBusy = false; return; }  // 舊的小網站（沒有量音量）：不再問
+  } finally { lvBusy = false; }
+  renderLevels();
+}
+function renderLevels(){
+  const now = performance.now();
+  let textChanged = false;
+  for (const s of Object.values(players)){
+    const box = s.tile.querySelector('.lv');
+    box.hidden = !lvOn;
+    if (!lvOn) continue;
+    const L = lvData[s.item.id];
+    // 條：峰值往上立刻到、往下慢慢降（跟 OBS 一樣好讀）；白線＝最近 1.5 秒最高
+    const pk = L && L.pk != null ? L.pk : -100;
+    const dt = s.lvAt ? Math.min(1, (now - s.lvAt) / 1000) : 1;
+    s.lvAt = now;
+    s.lvDisp = Math.max(pk, (s.lvDisp == null ? -100 : s.lvDisp) - LV_FALL * dt);
+    if (s.lvHold == null || pk >= s.lvHold || now - s.lvHoldAt > LV_HOLD_MS){ s.lvHold = pk; s.lvHoldAt = now; }
+    box.querySelector('i').style.width = (100 - lvPct(s.lvDisp)) + '%';
+    const hold = box.querySelector('b');
+    hold.style.display = s.lvHold > -60 ? 'block' : 'none';
+    hold.style.left = lvPct(s.lvHold) + '%';
+    // 文字約半秒換一次（每 0.15 秒換會看不清楚）
+    if (now - (s.lvTxtAt || 0) < LV_TXT_MS) continue;
+    s.lvTxtAt = now; textChanged = true;
+    let txt = '', avg = '', cls = 'lv';
+    if (lvFail >= 10) txt = '量音量的程式沒回應（重開「開總控頁.command」）';
+    else if (!L) txt = '聲音準備中…';
+    else if (L.m != null){
+      txt = L.m < -60 ? '沒有聲音' : `${Math.round(L.m)} LUFS`;
+      if (L.silent_s >= SILENT_WARN_S){ txt = `沒聲音 ${secText(L.silent_s)}`; cls += L.silent_s >= SILENT_BAD_S ? ' silent long' : ' silent'; }
+      if (L.avg != null) avg = `近 1 分 ${Math.round(L.avg)}`;
+    } else txt = LV_STATE[L.state] || L.state;
+    box.className = cls;
+    box.querySelector('.lvtxt').textContent = txt;
+    box.querySelector('.lvavg').textContent = avg;
+    box.title = '條＝每 0.1 秒的峰值（綠黃紅跟 OBS 一樣：−20、−9 dBFS），白線＝最近 1.5 秒最高。\n'
+      + '數字＝觀眾聽到的響度（LUFS，越接近 0 越大聲；一般直播約 −23～−14）。'
+      + (avg ? `\n近 1 分鐘有聲音時的平均：${Math.round(L.avg)} LUFS` : '') + (L && L.note ? `\n${L.note}` : '');
+  }
+  if (textChanged) updateSummary();
+}
+if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) lvTimer = setInterval(pollLevels, LV_POLL_MS);
 
 /* ---------- 編輯網址 ---------- */
 function showParseInfo(){
@@ -473,7 +628,13 @@ $('applyBtn').onclick = () => {
   toast('已套用');
 };
 const IS_LOCAL = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-function shareUrl(t){ return (IS_LOCAL ? ONLINE_URL : location.origin + location.pathname) + '#list=' + enc(t.trim()); }
+// 連結帶「?v=版本」：手機一定抓新版（舊版看不懂短連結）
+function shareUrl(t){
+  const base = IS_LOCAL ? ONLINE_URL : location.origin + location.pathname;
+  return base + '?v=' + $('ver').textContent.trim().replace(/\//g, '') + '#' + (packList(t) || 'list=' + enc(t.trim()));
+}
+// 手機已經開著總控頁、再點一條只差 # 後面的連結時，瀏覽器不會重新載入：自己重新載入讀新清單
+addEventListener('hashchange', () => { if (hasListHash()) location.reload(); });
 async function copyLink(t, where){
   const url = shareUrl(t);
   try { await navigator.clipboard.writeText(url); toast('手機連結已複製，貼到 LINE 就能用'); return; } catch(e){}
@@ -511,17 +672,31 @@ async function keepAwake(){ try { if (navigator.wakeLock && document.visibilityS
 document.addEventListener('visibilitychange', () => { keepAwake(); if (document.visibilityState === 'visible'){ visibleSince = Date.now(); setTimeout(playAll, 500); } });
 keepAwake();
 
-function apply(){
+function apply(pickToday){
   items = parse(text).items;
   const savedView = lsGet(LS_VIEW);
   if (savedView) view = savedView;
+  const tg = pickToday ? todayGroup() : null;
+  if (tg) view = tg;
   renderTabs();
   renderGrid();
 }
+let lastDay = mmdd();
+setInterval(() => {
+  const k = mmdd();
+  if (k === lastDay) return;
+  lastDay = k;
+  // Mac 本機版：整頁重新載入，順便拿到總管白天才補進 streams.js 的網址（載入時會自動挑今天那組）
+  if (DEFAULT_TEXT && location.protocol === 'http:'){ location.reload(); return; }
+  const g = todayGroup();
+  if (g && view !== g){ view = g; lsSet(LS_VIEW, g); renderTabs(); renderGrid(); toast(`換成今天（${k.slice(0, 2)}/${k.slice(2)}）的直播`); }
+}, 60000);
 
 if (location.protocol === 'file:') $('fileBanner').hidden = false;
 loadText();
-apply();
+apply(true);
+if (defChanged) setTimeout(() => toast('預設清單更新了，已換成新的網址'), 800);
+if (badLink) setTimeout(() => toast('這條手機連結讀不懂（可能貼的時候少了一段），先顯示之前的清單'), 800);
 
 const api = document.createElement('script');
 api.src = 'https://www.youtube.com/iframe_api';
