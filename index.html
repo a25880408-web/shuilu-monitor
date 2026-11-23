@@ -128,7 +128,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/23-8</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/23-9</span></span>
 </header>
 <main id="main"><div class="grid" id="grid"></div></main>
 
@@ -739,7 +739,7 @@ function relayShow(cls, long_, short, tip){
   e.hidden = false; e.className = cls;
   e.querySelector('.rl').textContent = long_;
   e.querySelector('.rs').textContent = short;
-  e.title = long_ + '\n' + tip + '\n\n資料怎麼走：量音量的電腦 → 雲端中繼站 → 上網版／這個頁面。';
+  e.title = long_ + '\n' + tip + '\n\n資料怎麼走：量音量的電腦（Mac 或筆電）→ 雲端中繼站 → 上網版（手機、別台電腦）。';
 }
 function relayOnline(){
   if (lvHubDown) return relayShow('bad', '音量中繼：連不上中繼站', '中繼 斷線', '這個頁面連不上雲端中繼站（網路或中繼站有問題）。畫面、聲音照常，只是音量條暫停。');
@@ -756,19 +756,27 @@ async function relayLocal(){
     const r = await fetch('/api/relay', { cache: 'no-store', headers: { 'X-Shuilu': '1' } });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json(), h = d.hub || {};
-    const mac = { on: 'Mac 上傳：開', off: 'Mac 上傳：停（由筆電量）', failing: 'Mac 上傳：失敗', none: 'Mac 上傳：沒有金鑰' }[d.mac_upload] || '';
-    const note = '\n\n注意：這台 Mac 的總控伺服器會每 10 秒去中繼站讀一次，中繼站會因此覺得「有人在看」，量音量的電腦就會開始量。' + (d.mac_err ? '\nMac 上傳最後錯誤：' + d.mac_err : '');
+    // 11/23-9（使用者：「中繼暫停，但音量條還在跑？」）：這顆燈只管「上網版（手機）」有沒有音量條，
+    // Mac 這一頁的音量條是 Mac 自己量的、不經過中繼站，所以字改成「上網版 …」，後面寫現在是哪台在量。
+    const mac = { on: 'Mac 上傳：開', off: 'Mac 上傳：停', failing: 'Mac 上傳：失敗', none: 'Mac 上傳：沒有金鑰' }[d.mac_upload] || '';
+    const who = { mac: 'Mac 量', nb: '筆電量', mix: 'Mac＋筆電' }[h.src] || '';
+    const note = '\n\n這一頁的音量條是 Mac 自己量的，不經過中繼站，這顆燈暫停也照樣會動。'
+      + '\nMac 和筆電可以同時開著送，中繼站每一壇只收正在送的那台，那台停了另一台幾秒內接手。'
+      + '\n這台 Mac 的總控伺服器會每 10 秒去中繼站讀一次，中繼站會因此覺得「有人在看」，量音量的電腦就會開始量。'
+      + (d.mac_err ? '\nMac 上傳最後錯誤：' + d.mac_err : '');
     const tail = mac ? '｜' + mac : '';
-    const ms = { on: 'Mac 開', off: 'Mac 停', failing: 'Mac 失敗', none: 'Mac 無金鑰' }[d.mac_upload];
-    const S = s => ms ? s + '｜' + ms : s;   // 短字後面加 Mac 上傳狀態
-    if (h.ok === null || h.ok === undefined) return relayShow('', '音量中繼：確認中' + tail, S('中繼 …'), '正在查中繼站。' + note);
-    if (!h.ok) return relayShow('bad', '音量中繼：連不上中繼站' + tail, S('中繼 斷線'), 'Mac 連不上雲端中繼站。' + note);
-    if (!h.total) return relayShow('', '音量中繼：—' + tail, S('中繼 —'), '目前沒有可查的直播。' + note);
-    if (h.live === 0) return relayShow('', '音量中繼：暫停（量音量的電腦沒開）' + tail, S('中繼 暫停'), '量音量的電腦沒開或沒網路。' + note);
+    // 短字後面：Mac 上傳出問題就寫問題；正常時寫哪台在量；查不到哪台（中繼站還是舊版）才寫 Mac 開／停
+    const ms = d.mac_upload === 'failing' ? 'Mac 失敗' : d.mac_upload === 'none' ? 'Mac 無金鑰'
+      : (h.live && who) ? who : { on: 'Mac 開', off: 'Mac 停' }[d.mac_upload];
+    const S = s => ms ? s + '｜' + ms : s;
+    if (h.ok === null || h.ok === undefined) return relayShow('', '上網版音量：確認中' + tail, S('上網版 …'), '正在查中繼站。' + note);
+    if (!h.ok) return relayShow('bad', '上網版音量：連不上中繼站' + tail, S('上網版 斷線'), 'Mac 連不上雲端中繼站，手機上的音量條會暫停。' + note);
+    if (!h.total) return relayShow('', '上網版音量：—' + tail, S('上網版 —'), '目前沒有可查的直播。' + note);
+    if (h.live === 0) return relayShow('', '上網版音量：暫停（量音量的電腦沒開）' + tail, S('上網版 暫停'), 'Mac 和筆電都沒在送，手機上的音量條暫停（Mac 這一頁照常）。' + note);
     const t = typeof h.age_s === 'number' ? '（' + h.age_s.toFixed(1) + ' 秒前更新）' : '';
-    relayShow('ok', '音量中繼：正常' + t + tail, S('中繼 正常'), '量音量的電腦有在送資料' + t + '。' + note);
+    relayShow('ok', '上網版音量：正常' + (who ? '，' + who : '') + t + tail, S('上網版 正常'), '有在送資料到中繼站' + (who ? '（' + who + '）' : '') + t + '，手機上看得到音量條。' + note);
   } catch(e){
-    relayShow('bad', '音量中繼：查不到（總控伺服器沒回應）', '中繼 ?', '這個頁面問不到本機總控伺服器。');
+    relayShow('bad', '上網版音量：查不到（總控伺服器沒回應）', '上網版 ?', '這個頁面問不到本機總控伺服器（Mac 這一頁的音量條可能也會停）。');
   }
 }
 if (LV_ONLINE) setInterval(relayOnline, 1000);
