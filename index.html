@@ -34,7 +34,8 @@ button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-
 main{flex:1;min-height:0;overflow:auto;padding:10px}
 .grid{display:grid;gap:10px;justify-content:center;align-content:center;min-height:100%}
 .tile{background:var(--panel);border:2px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
-.tile.audio{border-color:var(--accent)}
+/* 11/23-6：正在聽的那一格（按了「聲音」）框改紅色、加外圈，一眼看出聽的是哪一壇（使用者：「小視窗聲音打開，框框變成紅色」） */
+.tile.audio{border-color:var(--bad);box-shadow:0 0 0 2px var(--bad)}
 .bar{display:flex;align-items:center;gap:6px;padding:0 6px;height:34px;min-width:0;border-top:4px solid var(--idle)}
 .tile[data-s="ok"] .bar{border-top-color:var(--ok)}
 .tile[data-s="warn"] .bar{border-top-color:var(--warn)}
@@ -90,7 +91,15 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 @container (max-width:330px){ .lvavg{display:none} }
 .primary{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-weight:700;z-index:60}
+#relay{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap;cursor:help}
+#relay i{width:9px;height:9px;border-radius:50%;background:#888;flex:none}
+#relay.ok i{background:#3ecf6e}
+#relay.bad i{background:#e5484d}
+#relay .rs{display:none;font-weight:400}
+#relay .rl{font-weight:400}
 @media (max-width:700px){
+  #relay .rl{display:none}
+  #relay .rs{display:inline}
   #clock{font-size:16px}
   .vt{display:none}
   main{padding:8px}
@@ -110,8 +119,9 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
+  <span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span>
   <span id="clock">--:--:--</span>
-  <span id="ver">11/23-4</span>
+  <span id="ver">11/23-6</span>
 </header>
 <main id="main"><div class="grid" id="grid"></div></main>
 
@@ -714,6 +724,47 @@ if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.
 } else if (LV_ONLINE){
   lvTimer = setInterval(pollHub, LV_HUB_POLL_MS);
   requestAnimationFrame(lvFrame);
+}
+
+/* ---------- 音量中繼狀態燈（11/23-6） ---------- */
+function relayShow(cls, long_, short, tip){
+  const e = $('relay');
+  e.hidden = false; e.className = cls;
+  e.querySelector('.rl').textContent = long_;
+  e.querySelector('.rs').textContent = short;
+  e.title = tip + '\n\n資料怎麼走：量音量的電腦 → 雲端中繼站 → 上網版／這個頁面。';
+}
+function relayOnline(){
+  if (lvHubDown) return relayShow('bad', '音量中繼：連不上中繼站', '中繼 斷線', '這個頁面連不上雲端中繼站（網路或中繼站有問題）。畫面、聲音照常，只是音量條暫停。');
+  const ks = Object.keys(lvData);
+  if (!ks.length) return relayShow('', '音量中繼：—', '中繼 —', '目前沒有可查的直播。');
+  if (ks.every(k => lvData[k] && lvData[k].state === 'paused')) return relayShow('', '音量中繼：暫停（量音量的電腦沒開）', '中繼 暫停', '量音量的電腦沒開或沒網路，音量條暫停。畫面、聲音照常。');
+  let m = null;
+  ks.forEach(k => { const a = lvData[k] && lvData[k].age_s; if (typeof a === 'number' && (m === null || a < m)) m = a; });
+  const t = m === null ? '' : '（' + m.toFixed(1) + ' 秒前更新）';
+  relayShow('ok', '音量中繼：正常' + t, '中繼 正常', '量音量的電腦有在送資料' + t + '。');
+}
+async function relayLocal(){
+  try {
+    const r = await fetch('/api/relay', { cache: 'no-store', headers: { 'X-Shuilu': '1' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json(), h = d.hub || {};
+    const mac = { on: 'Mac 上傳：開', off: 'Mac 上傳：停（由筆電量）', failing: 'Mac 上傳：失敗', none: 'Mac 上傳：沒有金鑰' }[d.mac_upload] || '';
+    const note = '\n\n注意：這台 Mac 的總控伺服器會每 10 秒去中繼站讀一次，中繼站會因此覺得「有人在看」，量音量的電腦就會開始量。' + (d.mac_err ? '\nMac 上傳最後錯誤：' + d.mac_err : '');
+    const tail = mac ? '｜' + mac : '';
+    if (h.ok === null || h.ok === undefined) return relayShow('', '音量中繼：確認中' + tail, '中繼 …', '正在查中繼站。' + note);
+    if (!h.ok) return relayShow('bad', '音量中繼：連不上中繼站' + tail, '中繼 斷線', 'Mac 連不上雲端中繼站。' + note);
+    if (!h.total) return relayShow('', '音量中繼：—' + tail, '中繼 —', '目前沒有可查的直播。' + note);
+    if (h.live === 0) return relayShow('', '音量中繼：暫停（量音量的電腦沒開）' + tail, '中繼 暫停', '量音量的電腦沒開或沒網路。' + note);
+    const t = typeof h.age_s === 'number' ? '（' + h.age_s.toFixed(1) + ' 秒前更新）' : '';
+    relayShow('ok', '音量中繼：正常' + t + tail, '中繼 正常', '量音量的電腦有在送資料' + t + '。' + note);
+  } catch(e){
+    relayShow('bad', '音量中繼：查不到（總控伺服器沒回應）', '中繼 ?', '這個頁面問不到本機總控伺服器。');
+  }
+}
+if (LV_ONLINE) setInterval(relayOnline, 1000);
+else if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+  relayLocal(); setInterval(relayLocal, 5000);
 }
 
 /* ---------- 編輯網址 ---------- */
