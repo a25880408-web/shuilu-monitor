@@ -11,6 +11,11 @@
   --bg:#0d1015; --panel:#161a21; --panel2:#1d222b; --line:#28303b; --fg:#e8ebf0; --muted:#8c95a4;
   --accent:#45c3ff; --ok:#3ccb73; --warn:#eab33c; --bad:#f15454; --idle:#5f6875;
   --font:"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+  /* 11/23-8（使用者：「請修不要動來動去」）：會一直跳的數字（時鐘、音量 dB、LUFS）改用系統字型。
+     蘋方的數字寬窄不一（1 比 0、2 窄），tabular-nums 對它沒作用，時鐘每秒變寬變窄，
+     靠右的「中繼 正常｜Mac 停」就跟著左右晃。系統字型（Mac 的 SF、Windows 的 Segoe UI、Android 的 Roboto）數字等寬。
+     11/23 實測：改前時鐘寬 69～88 px 跳動，改後 10 種時間都固定 94 px。 */
+  --numfont:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -25,7 +30,7 @@ h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.04em;white-space:nowr
 #sum{font-size:13px;color:var(--muted);white-space:nowrap}
 #sum b{color:var(--fg)}
 #sum .bad{color:var(--bad)}
-#clock{font-variant-numeric:tabular-nums;font-size:20px;font-weight:700;letter-spacing:.03em}
+#clock{font-family:var(--numfont);font-variant-numeric:tabular-nums;font-size:20px;font-weight:700;letter-spacing:.03em}
 #ver{font-size:11px;color:var(--muted)}
 button,.btn{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center}
 button:hover,.btn:hover{border-color:#46505f}
@@ -40,7 +45,7 @@ main{flex:1;min-height:0;overflow:auto;padding:10px}
 .tile[data-s="ok"] .bar{border-top-color:var(--ok)}
 .tile[data-s="warn"] .bar{border-top-color:var(--warn)}
 .tile[data-s="bad"] .bar{border-top-color:var(--bad)}
-.num{font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:var(--muted);min-width:1.2em;text-align:center}
+.num{font-family:var(--numfont);font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:var(--muted);min-width:1.2em;text-align:center}
 .tile{container-type:inline-size}
 .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:3.2em;max-width:45%}
 @container (max-width:380px){ .vt{display:none} .tools{gap:3px} .tools button,.tools .btn{padding:2px 5px} }
@@ -81,7 +86,8 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(0,0,0,.6) calc(10% - 1px) 10%)}  /* 刻度每 6 dB 一格（−60～0） */
 .lvbar i{position:absolute;right:0;top:0;bottom:0;width:100%;background:#05070a;transform-origin:right center;will-change:transform}  /* 11/23-3：一秒 60 次用 transform 畫，不用 transition */
 .lvbar b{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-2px;background:#fff;opacity:.9;display:none;z-index:2}
-.lvtxt{white-space:nowrap;font-variant-numeric:tabular-nums}
+.lvtxt{white-space:nowrap;font-family:var(--numfont);font-variant-numeric:tabular-nums;min-width:5em;text-align:right}  /* 11/23-8：固定寬度，dB 數字一秒換兩次時音量條不會跟著伸縮 */
+.lvavg{white-space:nowrap;font-family:var(--numfont);font-variant-numeric:tabular-nums;min-width:7.2em}
 .lv.silent .lvtxt{color:var(--warn);font-weight:700}
 /* 11/23-4：音量暫停（量音量的電腦沒開、連不上中繼站）：條灰掉，不算沒聲音 */
 .lv.off .lvbar{background:#2b3038}
@@ -122,7 +128,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/23-7</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/23-8</span></span>
 </header>
 <main id="main"><div class="grid" id="grid"></div></main>
 
