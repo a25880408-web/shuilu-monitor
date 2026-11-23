@@ -74,12 +74,18 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
    條＝每 0.1 秒的峰值（dBFS，−60～0），顏色分區跟 OBS 一樣：−20 以下綠、−20～−9 黃、−9 以上紅；白線＝最近 1.5 秒最高。
    做法：底色整條是綠黃紅，用 i 從右邊蓋住沒亮的部分；b 是白線 */
 .lv{display:flex;align-items:center;gap:6px;height:21px;padding:0 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);flex:none}
-.lvbar{flex:1;height:7px;border-radius:4px;overflow:hidden;position:relative;min-width:40px;
-  background:linear-gradient(90deg,var(--ok) 0 66.67%,var(--warn) 66.67% 85%,var(--bad) 85%)}
-.lvbar i{position:absolute;right:0;top:0;bottom:0;width:100%;background:#05070a;transition:width .12s linear}
-.lvbar b{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-2px;background:#fff;opacity:.85;display:none}
+.lvbar{flex:1;height:9px;border-radius:4px;overflow:hidden;position:relative;min-width:40px;
+  background:linear-gradient(90deg,var(--ok) 0 78.33%,var(--warn) 78.33% 96.67%,var(--bad) 96.67%)}  /* 跟「輸出音量監測表」、使用者的 OBS（真峰值）一樣：−13 dB 起黃、−2 dB 起紅 */
+.lvbar::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(0,0,0,.6) calc(10% - 1px) 10%)}  /* 刻度每 6 dB 一格（−60～0） */
+.lvbar i{position:absolute;right:0;top:0;bottom:0;width:100%;background:#05070a;transform-origin:right center;will-change:transform}  /* 11/23-3：一秒 60 次用 transform 畫，不用 transition */
+.lvbar b{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-2px;background:#fff;opacity:.9;display:none;z-index:2}
 .lvtxt{white-space:nowrap;font-variant-numeric:tabular-nums}
 .lv.silent .lvtxt{color:var(--warn);font-weight:700}
+/* 11/23-4：音量暫停（量音量的電腦沒開、連不上中繼站）：條灰掉，不算沒聲音 */
+.lv.off .lvbar{background:#2b3038}
+.lv.off .lvbar b,.lv.off .lvbar::after{display:none}
+.lv.off .lvbar i{transform:scaleX(0)!important}
 .lv.silent.long .lvtxt{color:var(--bad)}
 @container (max-width:330px){ .lvavg{display:none} }
 .primary{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
@@ -105,7 +111,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
   <span id="clock">--:--:--</span>
-  <span id="ver">11/21-8</span>
+  <span id="ver">11/23-4</span>
 </header>
 <main id="main"><div class="grid" id="grid"></div></main>
 
@@ -545,18 +551,66 @@ function updateSummary(){
    Mac 上的「總控伺服器.py」在背景替每格只抓直播的聲音（不抓畫面），算峰值（每 0.1 秒）和響度（LUFS）；這裡每 0.15 秒問一次。
    量的是觀眾實際聽到的聲音，跟畫面一樣會比現場晚幾秒。上網版（手機）沒有這個伺服器，音量條不出現。 */
 const SILENT_WARN_S = 20, SILENT_BAD_S = 60;
-const LV_POLL_MS = 150, LV_FALL = 24, LV_HOLD_MS = 1500, LV_TXT_MS = 450;  // 條往下每秒掉 24 dB（往上立刻到）；白線停 1.5 秒；文字約半秒換一次
+const LV_POLL_MS = 300, LV_FALL = 24, LV_HOLD_MS = 1500, LV_TXT_MS = 450;  // 條往下每秒掉 24 dB（往上立刻到）；白線停 1.5 秒；文字約半秒換一次
+// 11/23-3：條一秒畫 60 次（lvFrame），伺服器每 0.3 秒給前後 3 秒的峰值。
+// 11/23-2：條跟這格播放器播到的那一秒對齊（見 playPos）。
+// 11/23-1：數字改成白線的 dB（跟壇場 NB 上「輸出音量監測表」同一種），顏色改 −13／−2 dB，加每 6 dB 的刻度；響度 LUFS 放旁邊
 const LV_STATE = { starting: '聲音連線中…', connecting: '聲音連線中…', reconnect: '聲音重新連線中…',
   upcoming: '聲音：還沒開播', ended: '聲音：直播已結束', error: '抓不到聲音' };
-let lvOn = false, lvData = {}, lvFail = 0, lvTimer = null, lvBusy = false;
+// 11/23-4：上網版（不是 Mac 本機）也有音量條：Mac 量好的數字送到雲端中繼站，這裡每 1 秒去讀。
+// 網址不接受參數或 # 指定中繼站；網頁主機名稱以 .localhost 結尾時（本機測試）才改連本機的測試中繼站。
+const LV_ONLINE = /^https?:$/.test(location.protocol) && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const LV_HUB = /\.localhost$/.test(location.hostname) ? 'http://127.0.0.1:8800' : 'https://obs-hub-production.up.railway.app';
+const LV_HUB_POLL_MS = 1000;
+let lvOn = LV_ONLINE, lvData = {}, lvFail = 0, lvTimer = null, lvBusy = false, lvHubDown = false;
 const secText = s => s >= 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s} 秒`;
 const lvPct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+// 11/23-2 對齊：這格播放器現在播到直播的第幾秒（跟伺服器 ffmpeg -copyts 的 t 同一個時間軸：段號×5 秒，11/23 實測）。
+// 伺服器回傳「那一秒」的音量，條就跟按「聲音」聽到的同步。播放器沒在播（暫停、還沒開播）回 null＝給最新的。
+function playPos(s){
+  try {
+    const st = s.p.getPlayerState();
+    if (st !== 1 && st !== 3) return null;
+    const ct = s.p.getCurrentTime();
+    if (!(ct > 0)) return null;
+    const now = performance.now();
+    if (ct !== s.ctLast){ s.ctLast = ct; s.ctAt = now; }
+    return st === 1 ? ct + Math.min(2, (now - s.ctAt) / 1000) : ct;   // 兩次回報之間自己往前推（最多 2 秒）
+  } catch(e){ return null; }
+}
+function lvQuery(){
+  const ids = [], ts = [];
+  for (const s of Object.values(players)){
+    if (ids.includes(s.item.id)) continue;
+    const pos = playPos(s);
+    ids.push(s.item.id); ts.push(pos == null ? '' : pos.toFixed(2));
+  }
+  return { ids, ts };
+}
+// 上網版：從雲端中繼站讀。簡單 GET、不帶自訂標頭、不帶 cookie。連不上或回暫停只讓音量條灰掉，不影響畫面、聲音和自動重載。
+async function pollHub(){
+  if (document.visibilityState === 'hidden') return;
+  const { ids, ts } = lvQuery();
+  if (!ids.length || lvBusy) return;
+  lvBusy = true;
+  try {
+    const r = await fetch(LV_HUB + '/api/yt-levels?ids=' + ids.slice(0, 16).join(',') + '&ts=' + ts.slice(0, 16).join(','),
+      { cache: 'no-store', credentials: 'omit' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    lvData = d.levels || {}; lvFail = 0; lvHubDown = false;
+  } catch(e){
+    lvFail++;
+    if (lvFail >= 3){ lvHubDown = true; lvData = {}; }   // 連續 3 次（約 3 秒）失敗才算連不上
+  } finally { lvBusy = false; }
+  renderLevels();
+}
 async function pollLevels(){
-  const ids = [...new Set(Object.values(players).map(s => s.item.id))];
+  const { ids, ts } = lvQuery();
   if (!ids.length || lvBusy) return;  // 上一次還沒回來就先不問，避免堆積
   lvBusy = true;
   try {
-    const r = await fetch('/api/levels?ids=' + ids.join(','), { headers: { 'X-Shuilu': '1' }, cache: 'no-store' });
+    const r = await fetch('/api/levels?ids=' + ids.join(',') + '&ts=' + ts.join(','), { headers: { 'X-Shuilu': '1' }, cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     lvData = d.levels || {}; lvFail = 0;
@@ -575,37 +629,92 @@ function renderLevels(){
     box.hidden = !lvOn;
     if (!lvOn) continue;
     const L = lvData[s.item.id];
-    // 條：峰值往上立刻到、往下慢慢降（跟 OBS 一樣好讀）；白線＝最近 1.5 秒最高
-    const pk = L && L.pk != null ? L.pk : -100;
-    const dt = s.lvAt ? Math.min(1, (now - s.lvAt) / 1000) : 1;
-    s.lvAt = now;
-    s.lvDisp = Math.max(pk, (s.lvDisp == null ? -100 : s.lvDisp) - LV_FALL * dt);
-    if (s.lvHold == null || pk >= s.lvHold || now - s.lvHoldAt > LV_HOLD_MS){ s.lvHold = pk; s.lvHoldAt = now; }
-    box.querySelector('i').style.width = (100 - lvPct(s.lvDisp)) + '%';
-    const hold = box.querySelector('b');
-    hold.style.display = s.lvHold > -60 ? 'block' : 'none';
-    hold.style.left = lvPct(s.lvHold) + '%';
+    // 11/23-3：條改由 lvFrame 一秒畫 60 次；這裡只把伺服器給的「前後 3 秒峰值」收進來
+    if (L && L.sync && L.w) lvMerge(s, L.w); else s.lvBuf = null;
     // 文字約半秒換一次（每 0.15 秒換會看不清楚）
     if (now - (s.lvTxtAt || 0) < LV_TXT_MS) continue;
     s.lvTxtAt = now; textChanged = true;
     let txt = '', avg = '', cls = 'lv';
-    if (lvFail >= 10) txt = '量音量的程式沒回應（重開「開總控頁.command」）';
+    s.lvOff = false;
+    if (LV_ONLINE && (lvHubDown || (L && L.state === 'paused'))){
+      s.lvOff = true; cls += ' off';
+      txt = lvHubDown ? '音量暫停（連不上中繼站）' : '音量暫停（' + (L.note || '量音量的電腦沒開') + '）';
+    } else if (lvFail >= 10 && !LV_ONLINE) txt = '量音量的程式沒回應（重開「開總控頁.command」）';
     else if (!L) txt = '聲音準備中…';
     else if (L.m != null){
-      txt = L.m < -60 ? '沒有聲音' : `${Math.round(L.m)} LUFS`;
+      txt = L.m < -60 ? '沒有聲音' : (s.lvHold > -60 ? `${s.lvHold.toFixed(1)} dB` : '—');   // 跟「輸出音量監測表」右邊的數字同一種：最近的最大值（dB）
       if (L.silent_s >= SILENT_WARN_S){ txt = `沒聲音 ${secText(L.silent_s)}`; cls += L.silent_s >= SILENT_BAD_S ? ' silent long' : ' silent'; }
-      if (L.avg != null) avg = `近 1 分 ${Math.round(L.avg)}`;
+      avg = L.m >= -60 ? `響度 ${Math.round(L.m)} LUFS` : '';
     } else txt = LV_STATE[L.state] || L.state;
     box.className = cls;
     box.querySelector('.lvtxt').textContent = txt;
     box.querySelector('.lvavg').textContent = avg;
-    box.title = '條＝每 0.1 秒的峰值（綠黃紅跟 OBS 一樣：−20、−9 dBFS），白線＝最近 1.5 秒最高。\n'
-      + '數字＝觀眾聽到的響度（LUFS，越接近 0 越大聲；一般直播約 −23～−14）。'
-      + (avg ? `\n近 1 分鐘有聲音時的平均：${Math.round(L.avg)} LUFS` : '') + (L && L.note ? `\n${L.note}` : '');
+    box.title = '條＝每 0.1 秒的峰值，刻度每 6 dB 一格；顏色跟「輸出音量監測表」、OBS 一樣：−13 dB 起黃、−2 dB 起紅。\n'
+      + '白線＝最近 1.5 秒最高，左邊數字就是它（dB），可以跟監測表右邊的數字比。\n'
+      + '量的是 YouTube 上觀眾聽到的聲音，比壇場的監測表晚約 10～30 秒，所以同一時間看兩邊會對不上。\n'
+      + (LV_ONLINE ? '（上網版：音量由 Mac 量好、經雲端中繼站轉送，Mac 關機時會暫停。）\n' : '')
+      + (L && L.sync ? `時間：已跟這格播放器對齊（音量資料比播放器早 ${L.ahead} 秒到；條一秒畫 60 次）。\n`
+                     : '時間：還沒跟播放器對齊（播放器沒在播，或音量資料還沒到），先顯示最新的音量。\n')
+      + '響度（LUFS）＝聽起來多大聲，一般直播約 −23～−14，跟 dB 是不同的單位。'
+      + (L && L.avg != null ? `\n近 1 分鐘有聲音時的平均：${Math.round(L.avg)} LUFS` : '') + (L && L.note ? `\n${L.note}` : '');
   }
   if (textChanged) updateSummary();
 }
-if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) lvTimer = setInterval(pollLevels, LV_POLL_MS);
+// 11/23-3：伺服器每次給「播放器前 0.3 秒～後 3 秒」每 0.1 秒的峰值，收在 s.lvBuf（留最近 6 秒）
+function lvMerge(s, w){
+  if (!w.length) return;
+  const b = s.lvBuf || (s.lvBuf = []);
+  const t0 = w[0][0];
+  while (b.length && b[b.length - 1][0] >= t0 - 1e-6) b.pop();   // 重疊的換成新的
+  for (const x of w) b.push(x);
+  const cut = w[w.length - 1][0] - 6;
+  let i = 0; while (i < b.length && b[i][0] < cut) i++;
+  if (i) b.splice(0, i);
+}
+// 一秒畫 60 次：照這格播放器現在播到的秒數，從 s.lvBuf 找「正在播的那 0.1 秒」的峰值。
+// 往上立刻到、往下每秒掉 24 dB；白線＝最近 1.5 秒最高。對不到（播放器沒在播、資料還沒到）就用伺服器給的最新值。
+function lvFrame(){
+  requestAnimationFrame(lvFrame);
+  if (!lvOn) return;
+  const now = performance.now();
+  for (const s of Object.values(players)){
+    const L = lvData[s.item.id];
+    const pos = s.lvBuf ? playPos(s) : null;
+    const b = s.lvBuf;
+    let pk = -100, hold = -100, ok = false;
+    if (pos != null && b && b.length && b[0][0] <= pos + 0.1 && b[b.length - 1][0] >= pos){
+      ok = true;
+      for (let i = b.length - 1; i >= 0; i--){
+        const t = b[i][0], p = b[i][1];
+        if (t - 0.1 > pos) continue;                  // 還沒播到
+        if (pos - t > LV_HOLD_MS / 1000) break;
+        if (p == null) continue;
+        if (t >= pos && p > pk) pk = p;              // 這 0.1 秒（t−0.1～t）正在播
+        if (p > hold) hold = p;
+      }
+    } else if (L && L.pk != null) pk = L.pk;
+    const dt = s.lvAt ? Math.min(0.25, (now - s.lvAt) / 1000) : 0;
+    s.lvAt = now;
+    s.lvDisp = Math.max(pk, (s.lvDisp == null ? -100 : s.lvDisp) - LV_FALL * dt);
+    if (ok) s.lvHold = hold;
+    else if (s.lvHold == null || pk >= s.lvHold || now - s.lvHoldAt > LV_HOLD_MS){ s.lvHold = pk; s.lvHoldAt = now; }
+    s.lvSmooth = ok;
+    const box = s.tile.querySelector('.lv');
+    if (box.hidden) continue;
+    if (s.lvOff){ s.lvDisp = -100; s.lvHold = -100; continue; }   // 暫停：條灰掉（CSS），不畫
+    box.querySelector('i').style.transform = 'scaleX(' + ((100 - lvPct(s.lvDisp)) / 100).toFixed(4) + ')';
+    const hb = box.querySelector('b');
+    hb.style.display = s.lvHold > -60 ? 'block' : 'none';
+    hb.style.left = lvPct(s.lvHold) + '%';
+  }
+}
+if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+  lvTimer = setInterval(pollLevels, LV_POLL_MS);
+  requestAnimationFrame(lvFrame);
+} else if (LV_ONLINE){
+  lvTimer = setInterval(pollHub, LV_HUB_POLL_MS);
+  requestAnimationFrame(lvFrame);
+}
 
 /* ---------- 編輯網址 ---------- */
 function showParseInfo(){
