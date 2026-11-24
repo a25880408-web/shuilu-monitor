@@ -106,6 +106,35 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 #relay .rs{display:inline;font-weight:400}
 #relay .rl{display:none;font-weight:400}
 #rt{display:inline-flex;align-items:center;gap:12px;margin-left:auto;white-space:nowrap}
+/* 11/24-1：各壇燈號（使用者：「請增加，各壇狀況即時燈號顯示，包含聲音、畫面、串流」）
+   每格狀態列加「串 畫 聲」三顆燈；頁首下面一排「各壇總覽」，有狀況的壇排前面、點一下跳到那一格。
+   綠＝正常、黃＝注意、紅＝異常（會閃）、灰＝還沒開播或沒有資料 */
+.lights{display:inline-flex;align-items:center;gap:5px;flex:none}
+.lt{display:inline-flex;align-items:center;gap:2px;font-size:11px;line-height:1;color:var(--muted);cursor:help}
+.lt::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--idle);flex:none}
+.lt.ok::before{background:var(--ok)}
+.lt.warn::before{background:var(--warn)}
+.lt.warn{color:var(--warn)}
+.lt.bad::before{background:var(--bad);animation:ltblink 1s steps(2,start) infinite}
+.lt.bad{color:#ff8a8a;font-weight:700}
+@keyframes ltblink{to{opacity:.2}}
+@media (prefers-reduced-motion:reduce){ .lt.bad::before{animation:none} }
+/* 格子窄：每格的燈只留圓點；再窄（手機）就藏起來，看最上方的總覽（不然右邊按鈕會被擠出去） */
+@container (max-width:520px){ .bar .lt{font-size:0;gap:0} .bar .lights{gap:3px} }
+@container (max-width:420px){ .bar .lights{display:none} }
+#ov{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:var(--panel);border-bottom:1px solid var(--line);
+  padding-block:6px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+#ovl{display:contents}
+.ovh{font-size:12px;color:var(--muted);cursor:help;white-space:nowrap}
+.ovc{gap:6px;padding:3px 8px;font-size:13px}
+.ovc b{font-weight:700}
+.ovc em{font-style:normal;font-size:12px;color:var(--warn);max-width:22em;overflow:hidden;text-overflow:ellipsis}
+.ovc.warn{border-color:var(--warn)}
+.ovc.bad{border-color:var(--bad);background:rgba(241,84,84,.16)}
+.ovc.bad em{color:#ff8a8a;font-weight:700}
+.ovc.idle b{color:var(--muted)}
+.tile.flash{animation:tflash .5s 4}
+@keyframes tflash{50%{box-shadow:0 0 0 4px var(--accent)}}
 @media (max-width:700px){
   #relay .rl{display:none}
   #relay .rs{display:inline}
@@ -128,8 +157,14 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/23-9</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-1</span></span>
 </header>
+<div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
+串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
+畫面＝播放器畫面有沒有在動；這台 Mac 的本機頁另外看「靜止」（完全不動 15 秒以上，放圖卡時正常）和「全黑」，上網版沒有這兩項
+聲音＝沒聲音 20 秒黃、60 秒紅；爆音（峰值碰到 −2 dB 以上）30 秒內 1～2 次黃、3 次以上紅
+都是觀眾在 YouTube 上看到、聽到的，比壇場晚約 10～30 秒。
+綠＝正常、黃＝注意、紅＝異常（會閃）、灰＝還沒開播或沒有資料。有狀況的壇排前面，點一下跳到那一格。">各壇燈號</span><span id="ovl"></span></div>
 <main id="main"><div class="grid" id="grid"></div></main>
 
 <dialog id="editor">
@@ -318,7 +353,7 @@ function renderGrid(){
   vis.forEach((it, n) => {
     const t = document.createElement('div');
     t.className = 'tile'; t.dataset.key = it.key; t.dataset.s = 'idle';
-    t.innerHTML = `<div class="bar"><span class="num"></span><span class="name"></span><span class="chip">載入中</span><span class="vt"></span>
+    t.innerHTML = `<div class="bar"><span class="num"></span><span class="name"></span><span class="lights"><span class="lt" data-k="s">串</span><span class="lt" data-k="v">畫</span><span class="lt" data-k="a">聲</span></span><span class="chip">載入中</span><span class="vt"></span>
       <span class="tools"><button data-act="audio" title="只聽這一格（快捷鍵 ${n+1}）">聲音</button><button data-act="max">放大</button><button data-act="reload">重載</button><a class="btn" target="_blank" rel="noopener" title="在 YouTube 打開這一格">↗</a></span></div>
       <div class="dup" hidden></div><div class="video"><div class="ph"></div><div class="msg" hidden></div></div>
       <div class="lv" hidden><span class="lvbar"><i></i><b></b></span><span class="lvtxt">聲音準備中…</span><span class="lvavg"></span></div>`;
@@ -550,6 +585,7 @@ function tick(){
   }
   autoReload(now);
   updateSummary();
+  renderLights();
 }
 
 function updateSummary(){
@@ -648,6 +684,7 @@ function renderLevels(){
     const L = lvData[s.item.id];
     // 11/23-3：條改由 lvFrame 一秒畫 60 次；這裡只把伺服器給的「前後 3 秒峰值」收進來
     if (L && L.sync && L.w) lvMerge(s, L.w); else s.lvBuf = null;
+    clipFeed(s, L);   // 11/24-1：數爆音（聲音燈用）
     // 文字約半秒換一次（每 0.15 秒換會看不清楚）
     if (now - (s.lvTxtAt || 0) < LV_TXT_MS) continue;
     s.lvTxtAt = now; textChanged = true;
@@ -675,7 +712,7 @@ function renderLevels(){
       + '響度（LUFS）＝聽起來多大聲，一般直播約 −23～−14，跟 dB 是不同的單位。'
       + (L && L.avg != null ? `\n近 1 分鐘有聲音時的平均：${Math.round(L.avg)} LUFS` : '') + (L && L.note ? `\n${L.note}` : '');
   }
-  if (textChanged) updateSummary();
+  if (textChanged){ updateSummary(); renderLights(); }
 }
 // 11/23-3：伺服器每次給「播放器前 0.3 秒～後 3 秒」每 0.1 秒的峰值，收在 s.lvBuf（留最近 6 秒）
 function lvMerge(s, w){
@@ -732,6 +769,117 @@ if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.
   lvTimer = setInterval(pollHub, LV_HUB_POLL_MS);
   requestAnimationFrame(lvFrame);
 }
+
+/* ---------- 11/24-1：各壇燈號（串流／畫面／聲音） ----------
+   使用者：「請增加，各壇狀況即時燈號顯示，包含聲音、畫面、串流…等。可以即時知道」。都是觀眾端（YouTube）的狀況。
+   串流＝播放器狀態＋量音量那邊問 YouTube 的直播狀態。
+   畫面＝播放器有沒有在動；Mac 本機頁另外有伺服器看的「靜止」「全黑」（L.v，抓 144p 畫面；上網版沒有）。
+   聲音＝只管沒聲音和爆音（使用者選的，大小聲差異看音量條）：沒聲音 20 秒黃、60 秒紅；
+         爆音＝峰值 ≥ −2 dB（音量條的紅區），連在一起的算一次，30 秒內 1～2 次黃、3 次以上紅。 */
+const CLIP_DB = -2, CLIP_WIN_MS = 30000, STILL_WARN_S = 15, BLACK_WARN_S = 3, BLACK_BAD_S = 10;
+const LT_KEYS = ['s', 'v', 'a'], LT_NAME = { s: '串流', v: '畫面', a: '聲音' };
+const LT_RANK = { bad: 0, warn: 1, ok: 2, idle: 3 };
+const escH = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let ovLast = '';
+function clipFeed(s, L){
+  const now = Date.now();
+  const hit = () => (s.clips || (s.clips = [])).push(now);
+  const w = L && L.sync && L.w;
+  if (w && w.length){
+    if (s.clipT != null && w[w.length - 1][0] < s.clipT - 60) s.clipT = s.clipHitT = null;   // 直播時間倒退很多＝換了一場
+    for (const x of w){
+      const t = x[0], p = x[1];
+      if (s.clipT != null && t <= s.clipT) continue;   // 每 0.1 秒只數一次（每次給的範圍會重疊）
+      s.clipT = t;
+      if (p != null && p >= CLIP_DB){
+        if (s.clipHitT == null || t - s.clipHitT > 0.5) hit();   // 連在一起的算同一次
+        s.clipHitT = t;
+      }
+    }
+  } else if (L && L.pk != null && L.pk >= CLIP_DB && now - (s.clipPkAt || 0) > 1000){
+    s.clipPkAt = now; hit();   // 還沒跟播放器對齊：用最新的峰值，一秒最多算一次
+  }
+  if (s.clips) while (s.clips.length && now - s.clips[0] > CLIP_WIN_MS) s.clips.shift();
+}
+function lightsOf(s, now){
+  const L = lvData[s.item.id], V = L && L.v;
+  let st = null; try { st = s.p && s.p.getPlayerState ? s.p.getPlayerState() : null; } catch(e){}
+  const stalled = st === 1 && s.stall && now - s.stall > 8000;
+  const bufS = st === 3 && s.buf ? Math.round((now - s.buf) / 1000) : 0;
+  const o = {};
+  // 串流
+  if (apiFailed) o.s = ['bad', '連不到 YouTube'];
+  else if (s.err != null) o.s = ['bad', '播放器錯誤'];
+  else if (st === 0 || (L && L.state === 'ended')) o.s = ['bad', '直播已結束'];
+  else if (stalled) o.s = ['warn', '播放卡住'];
+  else if (st === 3) o.s = [bufS > 10 ? 'bad' : 'warn', bufS > 3 ? `緩衝 ${bufS} 秒` : '緩衝中'];
+  else if (st === 1) o.s = ['ok', '直播中'];
+  else if (st === 2) o.s = ['warn', '暫停（自動續播中）'];
+  else o.s = ['idle', L && L.state === 'upcoming' ? '還沒開播' : '等待開播'];
+  // 畫面
+  if (apiFailed || s.err != null) o.v = ['bad', '播放器錯誤'];
+  else if (stalled) o.v = ['bad', '畫面停住（播放器沒在動）'];
+  else if (st !== 1 && st !== 3) o.v = ['idle', st === 0 ? '已結束' : '沒在播'];
+  else if (V && V.black_s >= BLACK_WARN_S) o.v = [V.black_s >= BLACK_BAD_S ? 'bad' : 'warn', `全黑 ${secText(V.black_s)}`];
+  else if (V && V.still_s >= STILL_WARN_S) o.v = ['warn', `靜止 ${secText(V.still_s)}（放圖卡時正常）`];
+  else if (st === 3) o.v = ['warn', '緩衝中'];
+  else o.v = ['ok', V && V.state === 'live' ? '在動' : '播放中'];
+  // 聲音
+  if (LV_ONLINE && (lvHubDown || (L && L.state === 'paused'))) o.a = ['idle', '音量暫停'];
+  else if (!lvOn) o.a = ['idle', '沒有音量資料'];
+  else if (!L) o.a = ['idle', '準備中'];
+  else if (L.m == null) o.a = ['idle', (LV_STATE[L.state] || L.state || '準備中').replace(/^聲音：/, '')];
+  else {
+    const n = s.clips ? s.clips.filter(t => now - t <= CLIP_WIN_MS).length : 0;
+    if (L.silent_s >= SILENT_BAD_S) o.a = ['bad', `沒聲音 ${secText(L.silent_s)}`];
+    else if (n >= 3) o.a = ['bad', `爆音 ${n} 次（30 秒內）`];
+    else if (L.silent_s >= SILENT_WARN_S) o.a = ['warn', `沒聲音 ${secText(L.silent_s)}`];
+    else if (n) o.a = ['warn', `爆音 ${n} 次（30 秒內）`];
+    else o.a = ['ok', '正常'];
+  }
+  return o;
+}
+function renderLights(){
+  const now = Date.now(), rows = [];
+  let i = 0;
+  for (const s of Object.values(players)){
+    const lt = lightsOf(s, now);
+    for (const k of LT_KEYS){
+      const e = s.tile.querySelector(`.lt[data-k="${k}"]`);
+      if (!e) continue;
+      const [c, txt] = lt[k];
+      if (e.dataset.c !== c){ e.className = 'lt ' + c; e.dataset.c = c; }
+      e.title = `${LT_NAME[k]}：${txt}`;
+    }
+    rows.push({ s, i: i++, lt, w: LT_KEYS.reduce((w, k) => LT_RANK[lt[k][0]] < LT_RANK[w] ? lt[k][0] : w, 'idle') });
+  }
+  renderOverview(rows);
+}
+// 頁首下面一排：每壇一顆按鈕（名稱＋三燈＋狀況），紅的排最前、再來黃、綠、灰；同一級照原本順序
+function renderOverview(rows){
+  const ov = $('ov');
+  rows.sort((a, b) => LT_RANK[a.w] - LT_RANK[b.w] || a.i - b.i);
+  const html = rows.map(r => {
+    const probs = ['bad', 'warn'].flatMap(c => LT_KEYS.filter(k => r.lt[k][0] === c).map(k => `${LT_NAME[k]} ${r.lt[k][1]}`));
+    const dots = LT_KEYS.map(k => `<span class="lt ${r.lt[k][0]}">${LT_NAME[k][0]}</span>`).join('');
+    const tip = r.s.item.name + '\n' + LT_KEYS.map(k => `${LT_NAME[k]}：${r.lt[k][1]}`).join('\n') + '\n（點一下跳到這一格）';
+    return `<button type="button" class="ovc ${r.w}" data-key="${escH(r.s.item.key)}" title="${escH(tip)}"><b>${escH(r.s.item.name)}</b>`
+      + `<span class="lights">${dots}</span>${probs.length ? `<em>${escH(probs.slice(0, 2).join('、'))}</em>` : ''}</button>`;
+  }).join('');
+  if (html === ovLast) return;
+  ovLast = html;
+  const h0 = ov.hidden ? 0 : ov.offsetHeight;
+  $('ovl').innerHTML = html;
+  ov.hidden = !rows.length;
+  if ((ov.hidden ? 0 : ov.offsetHeight) !== h0) layout();   // 總覽變高變矮：格子重新排
+}
+$('ov').addEventListener('click', e => {
+  const b = e.target.closest('.ovc'); if (!b) return;
+  const s = Object.values(players).find(x => String(x.item.key) === b.dataset.key);
+  if (!s) return;
+  s.tile.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  s.tile.classList.remove('flash'); void s.tile.offsetWidth; s.tile.classList.add('flash');
+});
 
 /* ---------- 音量中繼狀態燈（11/23-6） ---------- */
 function relayShow(cls, long_, short, tip){
