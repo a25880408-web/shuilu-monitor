@@ -160,11 +160,12 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 11/24-5：還沒開播的（例如晚上的焰口壇），排定開播前 60 分鐘才開始重載；YouTube 一說開播了就照常。">自動重載：開</button>
   <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
 11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。">狀況紀錄／錄音</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-5</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-6</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
-畫面＝播放器畫面有沒有在動；這台 Mac 的本機頁另外看「靜止」（完全不動 15 秒以上，放圖卡時正常）和「全黑」，上網版沒有這兩項
+畫面＝播放器畫面有沒有在動；這台 Mac 的本機頁另外看「靜止」（完全不動 15 秒以上）和「全黑」，上網版沒有這兩項
+　　　11/24-6 起，靜止時會自己判斷：淺色底的圖卡、投影片算正常（綠燈）；經本版面、攝影機畫面停住才亮黃燈
 聲音＝沒聲音 20 秒黃、60 秒紅；爆音（峰值碰到 −2 dB 以上）30 秒內 1～2 次黃、3 次以上紅；
 　　　這台 Mac 的本機頁另外看「壓頂」（最近 60 秒最大聲的地方反覆撞到同一個值 6 次以上，黃：前面推太大、靠限制器硬壓，大聲時容易破音；放圖卡時不看）
 都是觀眾在 YouTube 上看到、聽到的，比壇場晚約 10～30 秒。
@@ -801,6 +802,9 @@ if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.
    聲音＝只管沒聲音和爆音（使用者選的，大小聲差異看音量條）：沒聲音 20 秒黃、60 秒紅；
          爆音＝峰值 ≥ −2 dB（音量條的紅區），連在一起的算一次，30 秒內 1～2 次黃、3 次以上紅。 */
 const CLIP_DB = -2, CLIP_WIN_MS = 30000, STILL_WARN_S = 15, BLACK_WARN_S = 3, BLACK_BAD_S = 10;
+// 11/24-6：畫面停住時 Mac 會另抓一張畫面判斷是不是圖卡（V.card：1＝圖卡、0＝不像、null＝還在判斷或判斷不出來）；
+// 判斷中最多等這麼久，還判斷不出來才亮黃燈
+const CARD_WAIT_S = 60;
 // 11/24-3 壓頂：伺服器給「最近 60 秒有幾個半秒撞到最大值 0.1 dB 內」（11/24-4 起滿 60 秒才算、原本 0.2 dB）。0.1 dB 重算：正常的壇 1～2 次，楞嚴壇 5～13、法華壇 7
 const CEIL_ON = 6, CEIL_OFF = 3;
 const LT_KEYS = ['s', 'v', 'a'], LT_NAME = { s: '串流', v: '畫面', a: '聲音' };
@@ -847,7 +851,9 @@ function lightsOf(s, now){
   else if (stalled) o.v = ['bad', '畫面停住（播放器沒在動）'];
   else if (st !== 1 && st !== 3) o.v = ['idle', st === 0 ? '已結束' : '沒在播'];
   else if (V && V.black_s >= BLACK_WARN_S) o.v = [V.black_s >= BLACK_BAD_S ? 'bad' : 'warn', `全黑 ${secText(V.black_s)}`];
-  else if (V && V.still_s >= STILL_WARN_S) o.v = ['warn', `靜止 ${secText(V.still_s)}（放圖卡時正常）`];
+  else if (V && V.still_s >= STILL_WARN_S && V.card === 1) o.v = ['ok', `圖卡／投影片（畫面不動 ${secText(V.still_s)}，正常）`];
+  else if (V && V.still_s >= STILL_WARN_S && V.card == null && V.still_s < CARD_WAIT_S) o.v = ['ok', `畫面不動 ${secText(V.still_s)}，正在看是不是圖卡`];
+  else if (V && V.still_s >= STILL_WARN_S) o.v = ['warn', `靜止 ${secText(V.still_s)}（${V.card === 0 ? '不像圖卡，請看一下' : '判斷不出是不是圖卡'}）`];
   else if (st === 3) o.v = ['warn', '緩衝中'];
   else o.v = ['ok', V && V.state === 'live' ? '在動' : '播放中'];
   // 聲音
