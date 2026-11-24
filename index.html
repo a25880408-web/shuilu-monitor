@@ -156,9 +156,11 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="editBtn">編輯網址</button>
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
-  <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
-  <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。">狀況紀錄</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-3</span></span>
+  <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格。
+11/24-5：還沒開播的（例如晚上的焰口壇），排定開播前 60 分鐘才開始重載；YouTube 一說開播了就照常。">自動重載：開</button>
+  <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
+11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。">狀況紀錄／錄音</a>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-5</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
@@ -481,7 +483,8 @@ function statusOf(s, now){
   s.buf = 0;
   if (st === 0) return ['bad', '已結束'];
   if (st === 2) return ['warn', '已暫停，自動續播中'];
-  return ['idle', '等待開播'];
+  const when = startsText(lvData[s.item.id]);   // 11/24-5：看得出還多久就寫上
+  return ['idle', when ? `等待開播（${when}）` : '等待開播'];
 }
 
 /* ---------- 自動續播：總控牆不該停，被暫停（點到畫面、手機切回來、瀏覽器擋）就自己接著播 ---------- */
@@ -530,13 +533,31 @@ function problemOf(s){
   if (st === 2) return null;          // 暫停交給上面的自動續播
   return 'wait';
 }
+// 11/24-5：從 YouTube 的回覆（伺服器或中繼站轉來的 note：「This live event will begin in 7 hours.」「… in 24 minutes.」）
+// 估還有幾分鐘開播。只在「還沒開播」時看；看不出來回 null（照原本規則重載）。
+// YouTube 只寫整數小時（「in 1 hour」可能是 60～119 分鐘），所以實際是說「1 hour」或幾分鐘時開始重載。
+const WAIT_RELOAD_MIN = 60;
+function startsIn(L){
+  const m = L && L.state === 'upcoming' && /begin in (\d+|an?|a few) (minute|hour|day|moment)s?/i.exec(L.note || '');
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : (/few/i.test(m[1]) ? 0 : 1);
+  return { day: 1440, hour: 60, minute: 1, moment: 0 }[m[2].toLowerCase()] * n;
+}
+function startsText(L){
+  const mins = startsIn(L);
+  return mins == null ? '' : mins >= 60 ? `約 ${Math.round(mins / 60)} 小時後` : mins > 0 ? `約 ${mins} 分鐘後` : '快開始了';
+}
 function autoReload(now){
   const quiet = !autoOn || document.visibilityState !== 'visible' || now - visibleSince < 15000;
   let done = now - lastAutoAt < 2000;  // tick 也會被播放器事件叫到，用時間擋，確保每 2 秒最多一格
   for (const s of Object.values(players)){
     if (s.tile.dataset.s === 'ok'){ if (!s.okSince) s.okSince = now; if (now - s.okSince > 60000) s.autoN = 0; }
     else s.okSince = 0;
-    const kind = quiet ? null : problemOf(s);
+    let kind = quiet ? null : problemOf(s);
+    // 11/24-5（使用者：「晚上才要開始，請在之前才開始重載」「開播前 60 分鐘才開始」）：還沒開播、YouTube 說還要很久
+    // （焰口壇白天一直「約 7 小時後」），不重載（原本每 2 分鐘重載一次，那格一整天在跳）；排定開播前 60 分鐘才開始。
+    // YouTube 一說開播了（常會提早，11/23 焰口 17:00 場 16:37 就開），照常重載。
+    if (kind === 'wait'){ const mins = startsIn(lvData[s.item.id]); if (mins != null && mins > WAIT_RELOAD_MIN) kind = null; }
     if (kind !== s.probKind){ s.probKind = kind; s.probSince = now; }
     if (!kind || done) continue;
     const [need, cap, why] = AUTO[kind];
@@ -780,7 +801,7 @@ if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.
    聲音＝只管沒聲音和爆音（使用者選的，大小聲差異看音量條）：沒聲音 20 秒黃、60 秒紅；
          爆音＝峰值 ≥ −2 dB（音量條的紅區），連在一起的算一次，30 秒內 1～2 次黃、3 次以上紅。 */
 const CLIP_DB = -2, CLIP_WIN_MS = 30000, STILL_WARN_S = 15, BLACK_WARN_S = 3, BLACK_BAD_S = 10;
-// 11/24-3 壓頂：伺服器給「最近 60 秒有幾個半秒撞到最大值 0.2 dB 內」。11/24 實測：正常的壇 1～2 次，楞嚴壇 9～13、法華壇 9
+// 11/24-3 壓頂：伺服器給「最近 60 秒有幾個半秒撞到最大值 0.1 dB 內」（11/24-4 起滿 60 秒才算、原本 0.2 dB）。0.1 dB 重算：正常的壇 1～2 次，楞嚴壇 5～13、法華壇 7
 const CEIL_ON = 6, CEIL_OFF = 3;
 const LT_KEYS = ['s', 'v', 'a'], LT_NAME = { s: '串流', v: '畫面', a: '聲音' };
 const LT_RANK = { bad: 0, warn: 1, ok: 2, idle: 3 };
@@ -820,7 +841,7 @@ function lightsOf(s, now){
   else if (st === 3) o.s = [bufS > 10 ? 'bad' : 'warn', bufS > 3 ? `緩衝 ${bufS} 秒` : '緩衝中'];
   else if (st === 1) o.s = ['ok', '直播中'];
   else if (st === 2) o.s = ['warn', '暫停（自動續播中）'];
-  else o.s = ['idle', L && L.state === 'upcoming' ? '還沒開播' : '等待開播'];
+  else o.s = ['idle', L && L.state === 'upcoming' ? '還沒開播' + (startsText(L) ? `（${startsText(L)}）` : '') : '等待開播'];
   // 畫面
   if (apiFailed || s.err != null) o.v = ['bad', '播放器錯誤'];
   else if (stalled) o.v = ['bad', '畫面停住（播放器沒在動）'];
