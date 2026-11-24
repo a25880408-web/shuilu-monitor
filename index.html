@@ -88,7 +88,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   background:linear-gradient(90deg,var(--ok) 0 78.33%,var(--warn) 78.33% 96.67%,var(--bad) 96.67%)}  /* 跟「輸出音量監測表」、使用者的 OBS（真峰值）一樣：−13 dB 起黃、−2 dB 起紅 */
 .lvbar::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;
   background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(0,0,0,.6) calc(10% - 1px) 10%)}  /* 刻度每 6 dB 一格（−60～0） */
-.lvbar i{position:absolute;right:0;top:0;bottom:0;width:100%;background:#05070a;transform-origin:right center;will-change:transform}  /* 11/23-3：一秒 60 次用 transform 畫，不用 transition */
+.lvbar i{position:absolute;right:0;top:0;bottom:0;width:100%;background:rgba(13,16,21,.58);transform-origin:right center;will-change:transform}  /* 11/23-3：一秒 60 次用 transform 畫，不用 transition。11/25-1（使用者附「輸出音量監測表 0.3.0」截圖：「音量調底圖顏色，改成這樣」）：沒亮的部分從全黑改成半透明，底下看得到暗綠／暗黃／暗紅三段 */
 .lvbar b{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-2px;background:#fff;opacity:.9;display:none;z-index:2}
 .lvtxt{white-space:nowrap;font-family:var(--numfont);font-variant-numeric:tabular-nums;min-width:5em;text-align:right}  /* 11/23-8：固定寬度，dB 數字一秒換兩次時音量條不會跟著伸縮 */
 .lvavg{white-space:nowrap;font-family:var(--numfont);font-variant-numeric:tabular-nums;min-width:7.2em}
@@ -200,7 +200,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
 11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。
 11/24-7：每行標分類（網路、播放器暫停、聲音、畫面…），按一下只看那一類；網路問題會寫是「好幾壇同時（這台 Mac 這邊）」還是「只有這壇」。">狀況紀錄／錄音</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-14</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/25-1</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
