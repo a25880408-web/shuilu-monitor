@@ -50,7 +50,7 @@ main{flex:1;min-height:0;overflow:auto;padding:10px}
 .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:3.2em;max-width:45%}
 @container (max-width:380px){ .vt{display:none} .tools{gap:3px} .tools button,.tools .btn{padding:2px 5px} }
 @container (max-width:330px){ .num{display:none} .bar{gap:4px;padding:0 4px} .chip{font-size:11px;padding:1px 5px} .tools button,.tools .btn{padding:2px 4px;font-size:11px} }
-.chip{font-size:12px;font-weight:700;padding:1px 7px;border-radius:99px;white-space:nowrap;background:var(--idle);color:#0b0d10;flex:none}
+.chip{font-size:12px;font-weight:700;padding:1px 7px;border-radius:99px;white-space:nowrap;background:var(--idle);color:#0b0d10;flex:0 1 auto;min-width:2.6em;overflow:hidden;text-overflow:ellipsis}  /* 11/24-12：格子窄（手機）時狀態字太長就縮成「…」，右邊按鈕不被擠出去 */
 .tile[data-s="ok"] .chip{background:var(--ok)}
 .tile[data-s="warn"] .chip{background:var(--warn)}
 .tile[data-s="bad"] .chip{background:var(--bad);color:#fff}
@@ -58,6 +58,10 @@ main{flex:1;min-height:0;overflow:auto;padding:10px}
 .tools{display:flex;gap:4px;flex:none}
 .tools button,.tools .btn{padding:2px 8px;font-size:12px}
 .tools button.on{background:var(--accent);border-color:var(--accent);color:#04131c;font-weight:700}
+/* 11/24-12（使用者：「早上直播完畢的視窗，可以加一個關閉按鈕」）：直播結束的格子才出現「✕ 關閉」 */
+.tools .xbtn{border-color:var(--bad);color:#ff8a8a;font-weight:700}
+.tools .xbtn:hover{background:rgba(241,84,84,.16)}
+@container (max-width:380px){ .tools .xbtn .xl{display:none} }
 .dup{background:var(--bad);color:#fff;font-size:12px;font-weight:700;padding:2px 8px}
 .video{position:relative;aspect-ratio:16/9;background:#000;max-width:100%}
 .video iframe,.video .ph{position:absolute;inset:0;width:100%;height:100%;border:0}
@@ -124,7 +128,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 @container (max-width:420px){ .bar .lights{display:none} }
 #ov{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:var(--panel);border-bottom:1px solid var(--line);
   padding-block:6px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
-#ovl{display:contents}
+#ovl,#ovx{display:contents}
 .ovh{font-size:12px;color:var(--muted);cursor:help;white-space:nowrap}
 .ovc{gap:6px;padding:3px 8px;font-size:13px}
 .ovc b{font-weight:700;white-space:nowrap}
@@ -134,6 +138,9 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 .ovc.bad{border-color:var(--bad);background:rgba(241,84,84,.16)}
 .ovc.bad em{color:#ff8a8a;font-weight:700}
 .ovc.idle b{color:var(--muted)}
+.ovx{gap:4px;padding:3px 8px;font-size:12px;color:var(--muted)}
+.ovx.close{border-color:var(--bad);color:#ff8a8a;font-weight:700}
+.ovx .sn{display:none}
 .tile.flash{animation:tflash .5s 4}
 @keyframes tflash{50%{box-shadow:0 0 0 4px var(--accent)}}
 @media (max-width:700px){
@@ -168,6 +175,9 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   .ovc .lt{font-size:0;gap:0}
   .ovc .lights{gap:3px}
   .ovc em{display:none}
+  .ovx{grid-column:span 2;justify-content:center;padding:2px 4px}
+  .ovx .fn{display:none}
+  .ovx .sn{display:inline}
 }
 </style>
 </head>
@@ -189,7 +199,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
 11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。
 11/24-7：每行標分類（網路、播放器暫停、聲音、畫面…），按一下只看那一類；網路問題會寫是「好幾壇同時（這台 Mac 這邊）」還是「只有這壇」。">狀況紀錄／錄音</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-10</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-12</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
@@ -198,7 +208,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
 聲音＝沒聲音 20 秒黃、60 秒紅；爆音（峰值碰到 −2 dB 以上）30 秒內 1～2 次黃、3 次以上紅；
 　　　這台 Mac 的本機頁另外看「壓頂」（最近 60 秒最大聲的地方反覆撞到同一個值 6 次以上，黃：前面推太大、靠限制器硬壓，大聲時容易破音；放圖卡時不看）
 都是觀眾在 YouTube 上看到、聽到的，比壇場晚約 10～30 秒。
-綠＝正常、黃＝注意、紅＝異常（會閃）、灰＝還沒開播或沒有資料。有狀況的壇排前面，點一下跳到那一格。">各壇燈號</span><span id="ovl"></span></div>
+綠＝正常、黃＝注意、紅＝異常（會閃）、灰＝還沒開播或沒有資料。有狀況的壇排前面，點一下跳到那一格。">各壇燈號</span><span id="ovl"></span><span id="ovx"></span></div>
 <main id="main"><div class="grid" id="grid"></div></main>
 
 <dialog id="editor">
@@ -347,6 +357,17 @@ const mmdd = (d = new Date()) => String(d.getMonth() + 1).padStart(2, '0') + Str
 function todayGroup(){ const k = mmdd(); return groups().find(g => g.includes(k)) || null; }
 function groups(){ return [...new Set(items.map(i => i.group))]; }
 function visible(){ return items.map((it, idx) => ({ ...it, key: 'k' + idx })).filter(it => view === ALL || it.group === view); }
+// 11/24-12：直播結束的格子可以關掉（其他格變大、不再佔網路和電腦）。記在這台瀏覽器，只算當天：
+// 重新整理還是關著；過了半夜（新的一天）全部自動打開。頁首總覽有「↺ 已關閉」可以再打開。
+const LS_CLOSED = 'shuilu-mv-closed';
+let closed = {};   // 影片代碼 → 關掉那天（月日）
+try { closed = JSON.parse(lsGet(LS_CLOSED) || '{}') || {}; } catch(e){ closed = {}; }
+const isClosed = id => closed[id] === mmdd();
+function saveClosed(){
+  const k = mmdd();
+  for (const id of Object.keys(closed)) if (closed[id] !== k) delete closed[id];
+  lsSet(LS_CLOSED, Object.keys(closed).length ? JSON.stringify(closed) : null);
+}
 
 /* ---------- 畫面 ---------- */
 function renderTabs(){
@@ -384,15 +405,34 @@ function renderGrid(){
     const b = document.createElement('button'); b.className = 'primary'; b.textContent = '編輯網址'; b.onclick = openEditor;
     d.appendChild(b); grid.appendChild(d); updateSummary(); return;
   }
+  const shown = vis.filter(it => !isClosed(it.id));
+  if (!shown.length){
+    grid.style.gridTemplateColumns = '1fr';
+    const d = document.createElement('div');
+    d.className = 'empty';
+    d.innerHTML = '<b>這組的格子都關掉了</b><span>直播都結束了。要再看，按下面的按鈕，或頁首的「↺ 已關閉」。</span>';
+    const b = document.createElement('button'); b.className = 'primary'; b.textContent = '↺ 全部打開'; b.onclick = reopenAll;
+    d.appendChild(b); grid.appendChild(d); updateSummary(); return;
+  }
+  shown.forEach(it => {
+    const t = makeTile(it);
+    grid.appendChild(t);
+    players[it.key] = { item: it, tile: t, p: null, err: null, lastT: null, stall: 0, buf: 0, title: '' };
+  });
+  renumber();
+  layout();
+  buildPlayers();
+  updateSummary();
+}
+function makeTile(it){
   const count = {}; items.forEach(i => (count[i.id] = (count[i.id] || []).concat(i.name)));
-  vis.forEach((it, n) => {
+  {
     const t = document.createElement('div');
     t.className = 'tile'; t.dataset.key = it.key; t.dataset.s = 'idle';
     t.innerHTML = `<div class="bar"><span class="num"></span><span class="name"></span><span class="lights"><span class="lt" data-k="s">串</span><span class="lt" data-k="v">畫</span><span class="lt" data-k="a">聲</span></span><span class="chip">載入中</span><span class="vt"></span>
-      <span class="tools"><button data-act="audio" title="只聽這一格（快捷鍵 ${n+1}）">聲音</button><button data-act="max">放大</button><button data-act="reload">重載</button><a class="btn" target="_blank" rel="noopener" title="在 YouTube 打開這一格">↗</a></span></div>
+      <span class="tools"><button data-act="audio">聲音</button><button data-act="max">放大</button><button data-act="reload">重載</button><a class="btn" target="_blank" rel="noopener" title="在 YouTube 打開這一格">↗</a><button data-act="close" class="xbtn" hidden title="這壇直播已經結束：關掉這一格，其他格會變大，也不再佔網路。&#10;今天之內重新整理還是關著，明天自動打開；要再看，按頁首的「↺ 已關閉」。">✕<span class="xl">&nbsp;關閉</span></button></span></div>
       <div class="dup" hidden></div><div class="video"><div class="ph"></div><div class="msg" hidden></div></div>
       <div class="lv" hidden><span class="lvbar"><i></i><b></b></span><span class="lvtxt">聲音準備中…</span><span class="lvavg"></span></div>`;
-    t.querySelector('.num').textContent = n + 1;
     t.querySelector('.name').textContent = it.name;
     t.querySelector('.name').title = `${it.group}｜${it.name}`;
     t.querySelector('a.btn').href = 'https://www.youtube.com/watch?v=' + it.id;
@@ -408,13 +448,68 @@ function renderGrid(){
       if (a === 'audio') solo(it.key);
       else if (a === 'max') toggleMax(t);
       else if (a === 'reload') reloadOne(it.key);
+      else if (a === 'close'){ const s = players[it.key]; if (s) closeTiles([s]); }
     });
-    grid.appendChild(t);
-    players[it.key] = { item: it, tile: t, p: null, err: null, lastT: null, stall: 0, buf: 0, title: '' };
+    if (lvOn) t.querySelector('.lv').hidden = false;
+    return t;
+  }
+}
+// 格子編號（1、2、3…＝鍵盤快捷鍵）照現在畫面上的順序重排
+function renumber(){
+  $('grid').querySelectorAll('.tile').forEach((t, n) => {
+    t.querySelector('.num').textContent = n + 1;
+    const ab = t.querySelector('[data-act=audio]');
+    if (n < 9) ab.title = `只聽這一格（快捷鍵 ${n + 1}）`; else ab.removeAttribute('title');
   });
-  layout();
-  buildPlayers();
-  updateSummary();
+}
+function isEnded(s){
+  const L = lvData[s.item.id];
+  let st = null; try { st = s.p && s.p.getPlayerState ? s.p.getPlayerState() : null; } catch(e){}
+  // 伺服器每隔一陣子會重新確認已結束的直播，那一兩秒狀態是「重新連線」（11/24 實測），
+  // 所以看過一次「已結束」就記住，直到又說直播中或還沒開播（不然「✕ 關閉」會一閃一閃，一起關也會漏掉那一格）
+  if (st === 0 || (L && L.state === 'ended')) s.ended = true;
+  else if (L && (L.state === 'live' || L.state === 'upcoming')) s.ended = false;
+  return !!s.ended;
+}
+function closeTiles(list){
+  if (!list.length) return;
+  const k = mmdd();
+  list.forEach(s => { closed[s.item.id] = k; });
+  saveClosed();
+  const names = [];
+  for (const s of Object.values(players)){
+    if (!isClosed(s.item.id)) continue;   // 同一個網址的另一格也一起關
+    try { s.p && s.p.destroy(); } catch(e){}
+    s.tile.remove();
+    delete players[s.item.key];
+    names.push(s.item.name);
+  }
+  if (!$('grid').querySelector('.tile')) renderGrid();
+  else { renumber(); layout(); }
+  tick();
+  toast(`已關閉 ${names.join('、')}。要再看，按頁首「↺ 已關閉」`);
+}
+function reopenAll(){
+  const n = visible().filter(it => isClosed(it.id)).length;
+  closed = {}; saveClosed();
+  const grid = $('grid');
+  if (!grid.querySelector('.tile')) renderGrid();   // 本來全部關掉：整個重排
+  else {
+    // 只補回關掉的格子，插回原本的位置；正在播、正在聽的格子不動
+    let prev = null;
+    for (const it of visible()){
+      let s = players[it.key];
+      if (!s){
+        const t = makeTile(it);
+        if (prev) prev.after(t); else grid.prepend(t);
+        s = players[it.key] = { item: it, tile: t, p: null, err: null, lastT: null, stall: 0, buf: 0, title: '' };
+      }
+      prev = s.tile;
+    }
+    renumber(); layout(); buildPlayers();
+  }
+  tick();
+  if (n) toast(`已打開 ${n} 格`);
 }
 
 function layout(){
@@ -636,6 +731,7 @@ function tick(){
     const ab = t.querySelector('[data-act=audio]');
     ab.classList.toggle('on', on);
     ab.textContent = on ? '聲音開' : '聲音';
+    t.querySelector('[data-act=close]').hidden = !isEnded(s);
   }
   autoReload(now);
   updateSummary();
@@ -963,14 +1059,21 @@ function renderOverview(rows){
     return `<button type="button" class="ovc ${r.w}" data-key="${escH(r.s.item.key)}" title="${escH(tip)}"><b><span class="fn">${escH(nm)}</span><span class="sn">${escH(sn.length >= 2 ? sn : nm)}</span></b>`
       + `<span class="lights">${dots}</span>${probs.length ? `<em>${escH(probs.slice(0, 2).join('、'))}</em>` : ''}</button>`;
   }).join('');
-  if (html === ovLast) return;
-  ovLast = html;
+  const ended = rows.filter(r => isEnded(r.s)).length;
+  const shut = visible().filter(it => isClosed(it.id)).map(it => it.name);
+  const xh = (ended >= 2 ? `<button type="button" class="ovx close" data-x="close" title="把直播已結束的 ${ended} 格一起關掉，其他格會變大">✕ <span class="fn">關閉已結束的 ${ended} 格</span><span class="sn">關已結束 ${ended}</span></button>` : '')
+    + (shut.length ? `<button type="button" class="ovx" data-x="open" title="${escH('今天關掉的：' + shut.join('、') + '\n點一下全部打開（明天會自動打開）')}">↺ <span class="fn">已關閉 ${shut.length} 格（${escH(shut.join('、'))}）</span><span class="sn">已關閉 ${shut.length}</span></button>` : '');
+  if (html + xh === ovLast) return;
+  ovLast = html + xh;
   const h0 = ov.hidden ? 0 : ov.offsetHeight;
   $('ovl').innerHTML = html;
-  ov.hidden = !rows.length;
+  $('ovx').innerHTML = xh;
+  ov.hidden = !rows.length && !xh;
   if ((ov.hidden ? 0 : ov.offsetHeight) !== h0) layout();   // 總覽變高變矮：格子重新排
 }
 $('ov').addEventListener('click', e => {
+  const x = e.target.closest('.ovx');
+  if (x){ if (x.dataset.x === 'close') closeTiles(Object.values(players).filter(isEnded)); else reopenAll(); return; }
   const b = e.target.closest('.ovc'); if (!b) return;
   const s = Object.values(players).find(x => String(x.item.key) === b.dataset.key);
   if (!s) return;
