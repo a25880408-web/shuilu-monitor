@@ -142,6 +142,30 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   .vt{display:none}
   main{padding:8px}
 }
+/* 11/24-9（使用者附手機截圖：「請調整手機版面，上方功能按鍵區太多，下方視窗無法完整看到」）：
+   手機（寬 700 以下）頁首只留兩行：①標題＋中繼燈、時鐘、版本　②在播幾格、聽哪格＋「功能 ▾」。
+   分組、全部靜音、全部重載、編輯網址、複製手機連結、全部播放、自動重載收進「功能 ▾」，按一下展開、再按收起。
+   各壇燈號那排改成一行、左右滑，只留壇名和三顆圓點（有狀況才多一小段字）。電腦版不變。 */
+#moreBtn{display:none}
+@media (max-width:700px){
+  header{gap:6px 8px;padding-block:6px}
+  h1{font-size:14px;order:1}
+  #rt{order:2;gap:8px}
+  .spacer{order:3;flex:0 0 100%;height:0}
+  #sum{order:4}
+  #moreBtn{display:inline-flex;order:5;margin-left:auto;padding:3px 10px}
+  header.open #moreBtn{background:var(--fg);color:var(--bg);border-color:var(--fg);font-weight:700}
+  #tabs{order:6;flex:0 0 100%}
+  header > button:not(#moreBtn), header > .btn{order:7;padding:4px 8px}
+  header:not(.open) #tabs, header:not(.open) > button:not(#moreBtn), header:not(.open) > .btn{display:none}
+  #ov{flex-wrap:nowrap;overflow-x:auto;gap:5px;padding-block:5px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #ov::-webkit-scrollbar{display:none}
+  .ovh{display:none}
+  .ovc{flex:none;gap:4px;padding:2px 7px;font-size:13px}
+  .ovc .lt{font-size:0;gap:0}
+  .ovc .lights{gap:3px}
+  .ovc em{max-width:9em;white-space:nowrap}
+}
 </style>
 </head>
 <body>
@@ -151,6 +175,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <div class="tabs" id="tabs"></div>
   <div class="spacer"></div>
   <span id="sum"></span>
+  <button id="moreBtn" aria-expanded="false" title="分組、全部靜音、重載、編輯網址、複製手機連結…">功能 ▾</button>
   <button id="muteAll" title="快捷鍵 0">全部靜音</button>
   <button id="reloadAll">全部重載</button>
   <button id="editBtn">編輯網址</button>
@@ -161,7 +186,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
 11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。
 11/24-7：每行標分類（網路、播放器暫停、聲音、畫面…），按一下只看那一類；網路問題會寫是「好幾壇同時（這台 Mac 這邊）」還是「只有這壇」。">狀況紀錄／錄音</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-8</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-9</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
@@ -1056,6 +1081,13 @@ document.addEventListener('keydown', e => {
   if (/^[1-9]$/.test(e.key)){ const t = $('grid').querySelectorAll('.tile')[+e.key - 1]; if (t) solo(t.dataset.key); }
 });
 window.addEventListener('resize', () => { clearTimeout(layout.h); layout.h = setTimeout(layout, 120); });
+// 11/24-9：手機的「功能 ▾」：展開／收起頁首的分組和按鈕（電腦版看不到這顆，按鈕一直都在）
+$('moreBtn').onclick = () => {
+  const open = document.querySelector('header').classList.toggle('open');
+  $('moreBtn').setAttribute('aria-expanded', open);
+  $('moreBtn').textContent = open ? '功能 ▴' : '功能 ▾';
+  layout();
+};
 setInterval(() => { const d = new Date(); $('clock').textContent = d.toLocaleTimeString('zh-TW', { hour12: false }); }, 500);
 setInterval(tick, 2000);
 
