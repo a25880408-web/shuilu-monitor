@@ -159,8 +159,9 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格。
 11/24-5：還沒開播的（例如晚上的焰口壇），排定開播前 60 分鐘才開始重載；YouTube 一說開播了就照常。">自動重載：開</button>
   <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
-11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。">狀況紀錄／錄音</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-6</span></span>
+11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。
+11/24-7：每行標分類（網路、播放器暫停、聲音、畫面…），按一下只看那一類；網路問題會寫是「好幾壇同時（這台 Mac 這邊）」還是「只有這壇」。">狀況紀錄／錄音</a>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-8</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
@@ -860,6 +861,7 @@ function lightsOf(s, now){
   if (LV_ONLINE && (lvHubDown || (L && L.state === 'paused'))) o.a = ['idle', '音量暫停'];
   else if (!lvOn) o.a = ['idle', '沒有音量資料'];
   else if (!L) o.a = ['idle', '準備中'];
+  else if (L.m == null && L.renew) o.a = ['ok', '正常（每小時例行換網址，幾秒就好）'];   // 11/24-7：不是網路問題，燈不變灰、不記進紀錄
   else if (L.m == null) o.a = ['idle', (LV_STATE[L.state] || L.state || '準備中').replace(/^聲音：/, '')];
   else {
     const n = s.clips ? s.clips.filter(t => now - t <= CLIP_WIN_MS).length : 0;
@@ -897,18 +899,30 @@ function renderLights(){
 // 11/24-2（使用者：「新增，記錄 LOG，本機記錄各壇狀況」）：只有 Mac 本機頁（有總控伺服器）每 2 秒把燈號送去，
 // 伺服器記「燈號變了」到 各壇紀錄/日期.txt；頁首「狀況紀錄」按鈕打開看。上網版不送、不顯示按鈕。
 // 開頁、換分頁、改網址後 20 秒內各格還在載入（燈號先黃、灰再轉綠），不送，免得紀錄多出一堆「緩衝中→直播中」（11/24 測試看到）。
-var LOG_HOLD_MS = 20000, logHoldUntil = Date.now() + 20000, logAt = 0;   // var：renderGrid 早一點叫也不會出錯
-function postLights(rows){
+var LOG_HOLD_MS = 20000, logHoldUntil = Date.now() + 20000, logAt = 0, logRows = [];   // var：renderGrid 早一點叫也不會出錯
+// 11/24-8：一併送 vis（這頁在不在眼前）。切到背景時馬上送一次，伺服器就知道接下來的「暫停」是 Chrome 省電；
+// 回到眼前先等 20 秒（各格自己續播），再送，伺服器寫一行「在背景多久」。
+function postLights(rows, force){
   const local = !LV_ONLINE && lvOn;
   $('logBtn').hidden = !local;
   if (!local || !rows.length) return;
+  logRows = rows;
   const now = Date.now();
-  if (now < logHoldUntil || now - logAt < 2000) return;
+  if (!force && (now < logHoldUntil || now - logAt < 2000)) return;
   logAt = now;
   const items = rows.map(r => ({ id: r.s.item.id, name: r.s.item.name, s: r.lt.s, v: r.lt.v, a: r.lt.a }));
   fetch('/api/lights', { method: 'POST', headers: { 'X-Shuilu': '1', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }), cache: 'no-store' }).catch(() => {});
+    body: JSON.stringify({ items, vis: document.visibilityState }), cache: 'no-store', keepalive: true }).catch(() => {});
 }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') postLights(logRows, true);
+  else {
+    logHoldUntil = Math.max(logHoldUntil, Date.now() + LOG_HOLD_MS);
+    // 馬上告訴伺服器回來了（只送 vis，不送燈號：各格還在續播），「在背景多久」才準
+    if (!LV_ONLINE && lvOn) fetch('/api/lights', { method: 'POST', headers: { 'X-Shuilu': '1', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [], vis: 'visible' }), cache: 'no-store' }).catch(() => {});
+  }
+});
 // 頁首下面一排：每壇一顆按鈕（名稱＋三燈＋狀況），紅的排最前、再來黃、綠、灰；同一級照原本順序
 function renderOverview(rows){
   const ov = $('ov');
