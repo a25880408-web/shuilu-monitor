@@ -157,12 +157,14 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <button id="linkBtn" title="複製上網版連結（含現在的網址清單），貼到 LINE 給自己或組員，用手機、別台電腦打開">複製手機連結</button>
   <button id="playAll" title="所有畫面一起繼續播放">全部播放</button>
   <button id="autoBtn" title="已結束、畫面停住、緩衝太久、等待開播太久、載入太久時，自動重載那一格">自動重載：開</button>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-1</span></span>
+  <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。">狀況紀錄</a>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-3</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
 畫面＝播放器畫面有沒有在動；這台 Mac 的本機頁另外看「靜止」（完全不動 15 秒以上，放圖卡時正常）和「全黑」，上網版沒有這兩項
-聲音＝沒聲音 20 秒黃、60 秒紅；爆音（峰值碰到 −2 dB 以上）30 秒內 1～2 次黃、3 次以上紅
+聲音＝沒聲音 20 秒黃、60 秒紅；爆音（峰值碰到 −2 dB 以上）30 秒內 1～2 次黃、3 次以上紅；
+　　　這台 Mac 的本機頁另外看「壓頂」（最近 60 秒最大聲的地方反覆撞到同一個值 6 次以上，黃：前面推太大、靠限制器硬壓，大聲時容易破音；放圖卡時不看）
 都是觀眾在 YouTube 上看到、聽到的，比壇場晚約 10～30 秒。
 綠＝正常、黃＝注意、紅＝異常（會閃）、灰＝還沒開播或沒有資料。有狀況的壇排前面，點一下跳到那一格。">各壇燈號</span><span id="ovl"></span></div>
 <main id="main"><div class="grid" id="grid"></div></main>
@@ -337,6 +339,7 @@ function destroyPlayers(){
 }
 
 function renderGrid(){
+  logHoldUntil = Date.now() + LOG_HOLD_MS;   // 11/24-2：格子重建（開頁、換分頁、改網址），載入中的燈號先不送去紀錄
   destroyPlayers();
   const grid = $('grid');
   grid.textContent = '';
@@ -777,6 +780,8 @@ if (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(location.
    聲音＝只管沒聲音和爆音（使用者選的，大小聲差異看音量條）：沒聲音 20 秒黃、60 秒紅；
          爆音＝峰值 ≥ −2 dB（音量條的紅區），連在一起的算一次，30 秒內 1～2 次黃、3 次以上紅。 */
 const CLIP_DB = -2, CLIP_WIN_MS = 30000, STILL_WARN_S = 15, BLACK_WARN_S = 3, BLACK_BAD_S = 10;
+// 11/24-3 壓頂：伺服器給「最近 60 秒有幾個半秒撞到最大值 0.2 dB 內」。11/24 實測：正常的壇 1～2 次，楞嚴壇 9～13、法華壇 9
+const CEIL_ON = 6, CEIL_OFF = 3;
 const LT_KEYS = ['s', 'v', 'a'], LT_NAME = { s: '串流', v: '畫面', a: '聲音' };
 const LT_RANK = { bad: 0, warn: 1, ok: 2, idle: 3 };
 const escH = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -831,10 +836,16 @@ function lightsOf(s, now){
   else if (L.m == null) o.a = ['idle', (LV_STATE[L.state] || L.state || '準備中').replace(/^聲音：/, '')];
   else {
     const n = s.clips ? s.clips.filter(t => now - t <= CLIP_WIN_MS).length : 0;
+    // 11/24-3 壓頂（只有 Mac 本機頁有 L.ceil）：6 次以上亮、3 次以下才熄（不在門檻附近一直跳）；放圖卡時不看（錄好的佛號本來就壓過頂）
+    const C = L.ceil;
+    if (!C || (V && V.still_s >= STILL_WARN_S)) s.ceilOn = false;
+    else if (C.hits >= CEIL_ON) s.ceilOn = true;
+    else if (C.hits <= CEIL_OFF) s.ceilOn = false;
     if (L.silent_s >= SILENT_BAD_S) o.a = ['bad', `沒聲音 ${secText(L.silent_s)}`];
     else if (n >= 3) o.a = ['bad', `爆音 ${n} 次（30 秒內）`];
     else if (L.silent_s >= SILENT_WARN_S) o.a = ['warn', `沒聲音 ${secText(L.silent_s)}`];
     else if (n) o.a = ['warn', `爆音 ${n} 次（30 秒內）`];
+    else if (s.ceilOn) o.a = ['warn', `壓頂：60 秒撞到 ${C.db.toFixed(1)} dB ${C.hits} 次（推太大，大聲時易破音）`];
     else o.a = ['ok', '正常'];
   }
   return o;
@@ -853,7 +864,23 @@ function renderLights(){
     }
     rows.push({ s, i: i++, lt, w: LT_KEYS.reduce((w, k) => LT_RANK[lt[k][0]] < LT_RANK[w] ? lt[k][0] : w, 'idle') });
   }
+  postLights(rows);
   renderOverview(rows);
+}
+// 11/24-2（使用者：「新增，記錄 LOG，本機記錄各壇狀況」）：只有 Mac 本機頁（有總控伺服器）每 2 秒把燈號送去，
+// 伺服器記「燈號變了」到 各壇紀錄/日期.txt；頁首「狀況紀錄」按鈕打開看。上網版不送、不顯示按鈕。
+// 開頁、換分頁、改網址後 20 秒內各格還在載入（燈號先黃、灰再轉綠），不送，免得紀錄多出一堆「緩衝中→直播中」（11/24 測試看到）。
+var LOG_HOLD_MS = 20000, logHoldUntil = Date.now() + 20000, logAt = 0;   // var：renderGrid 早一點叫也不會出錯
+function postLights(rows){
+  const local = !LV_ONLINE && lvOn;
+  $('logBtn').hidden = !local;
+  if (!local || !rows.length) return;
+  const now = Date.now();
+  if (now < logHoldUntil || now - logAt < 2000) return;
+  logAt = now;
+  const items = rows.map(r => ({ id: r.s.item.id, name: r.s.item.name, s: r.lt.s, v: r.lt.v, a: r.lt.a }));
+  fetch('/api/lights', { method: 'POST', headers: { 'X-Shuilu': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }), cache: 'no-store' }).catch(() => {});
 }
 // 頁首下面一排：每壇一顆按鈕（名稱＋三燈＋狀況），紅的排最前、再來黃、綠、灰；同一級照原本順序
 function renderOverview(rows){
