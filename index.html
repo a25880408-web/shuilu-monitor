@@ -65,7 +65,7 @@ main{flex:1;min-height:0;overflow:auto;padding:10px}
 .dup{background:var(--bad);color:#fff;font-size:12px;font-weight:700;padding:2px 8px}
 .video{position:relative;aspect-ratio:16/9;background:#000;max-width:100%}
 .video iframe,.video .ph{position:absolute;inset:0;width:100%;height:100%;border:0}
-.msg{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:16px;background:rgba(8,10,14,.86);font-size:13px}
+.msg{white-space:pre-line;position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:16px;background:rgba(8,10,14,.86);font-size:13px}
 .tile.max{position:fixed;inset:0;z-index:50;border-radius:0;border-width:0}
 .tile.max .video{flex:1;aspect-ratio:auto}
 .empty{max-width:34em;margin:auto;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:12px;align-items:center;padding:40px 16px}
@@ -199,7 +199,7 @@ dialog textarea{width:100%;height:46vh;background:var(--bg);color:var(--fg);bord
   <a class="btn" id="logBtn" href="/api/statuslog" target="_blank" rel="noopener" hidden title="各壇燈號變化的紀錄（只記在這台 Mac，總控頁開著才會記）。最新的在最上面。
 11/24-4：爆音、壓頂時自動錄前後 15 秒；聽到破音可以手動「錄下剛剛 30 秒」；點片段看波形、聽。
 11/24-7：每行標分類（網路、播放器暫停、聲音、畫面…），按一下只看那一類；網路問題會寫是「好幾壇同時（這台 Mac 這邊）」還是「只有這壇」。">狀況紀錄／錄音</a>
-  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-12</span></span>
+  <span id="rt"><span id="relay" hidden><i></i><b class="rl"></b><b class="rs"></b></span><span id="clock">--:--:--</span><span id="ver">11/24-13</span></span>
 </header>
 <div id="ov" hidden><span class="ovh" title="各壇燈號（11/24-1）：
 串流＝YouTube 直播有沒有在播（緩衝、卡住、結束）
@@ -588,11 +588,12 @@ function toggleMax(t){
   if (on){ t.classList.add('max'); t.querySelector('[data-act=max]').textContent = '縮回'; }
 }
 
-const ERR = { 2: '網址的影片代碼不對', 5: '播放器出錯，按「重載」', 100: '找不到影片，或設成私人', 101: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 150: '這支影片不允許嵌入，請按右上「↗」到 YouTube 看', 153: location.protocol === 'file:' ? '要用「開總控頁.command」開才看得到' : '這個瀏覽器擋住 YouTube 嵌入畫面，請換瀏覽器，或按右上「↗」到 YouTube 看' };
+// 11/24-13：私人影片（11/25 小齋天等）實測回 150，原本寫「不允許嵌入，請按 ↗」會誤導，改寫
+const ERR = { 2: '網址的影片代碼不對', 5: '播放器出錯，按「重載」', 100: '找不到影片，或設成私人', 101: '這支影片還沒公開（私人影片），或不允許嵌入', 150: '這支影片還沒公開（私人影片），或不允許嵌入', 153: location.protocol === 'file:' ? '要用「開總控頁.command」開才看得到' : '這個瀏覽器擋住 YouTube 嵌入畫面，請換瀏覽器，或按右上「↗」到 YouTube 看' };
 
 function statusOf(s, now){
   if (apiFailed) return ['bad', '連不到 YouTube'];
-  if (s.err != null) return ['bad', '錯誤'];
+  if (errOf(s, now) != null) return ['bad', '錯誤'];
   if (!s.p || !s.p.getPlayerState) return ['idle', '載入中'];
   let st; try { st = s.p.getPlayerState(); } catch(e){ return ['idle', '載入中']; }
   let live = false; try { const d = s.p.getVideoData(); live = !!(d && d.isLive); s.title = (d && d.title) || ''; } catch(e){}
@@ -645,11 +646,21 @@ const AUTO = {  // 種類: [持續多久才重載（毫秒）, 間隔上限（�
   wait:  [60000, 120000, '等待開播太久'],
   load:  [45000, 120000, '載入太久'],
   err:   [10000, 300000, '播放器出錯'],
+  priv:  [60000, 180000, '影片還沒公開，再試一次'],
 };
+// 11/24-13（使用者：「要，加自動重試」）：11/25 小齋天、藥師壇、淨土壇前一天還是「私人影片」。這種錯誤（找不到／私人、不允許嵌入）
+// 改公開後播放器不會自己出來，原本要人按「重載」。改成每 3～4 分鐘自動再試一次（先等 1 分鐘，之後間隔 30 秒、1 分、2 分、3 分）。
+// 再試不跳提示、不算進「自動重載 N 次」；再試的那十幾秒燈號照樣算錯誤，狀況紀錄不會每次多兩行。
+const RETRY_ERR = [100, 101, 150], RETRY_HOLD_MS = 15000;
+function errOf(s, now){
+  if (s.err != null) return s.err;
+  return now < (s.retryHold || 0) ? s.retryErr : null;
+}
 function problemOf(s){
   if (apiFailed || !s.p) return null;
-  if (s.err === 5) return 'err';      // 其他錯誤代碼（網址錯、不允許嵌入）重載也沒用
-  if (s.err != null) return null;
+  if (s.err === 5) return 'err';
+  if (RETRY_ERR.includes(s.err)) return 'priv';   // 私人、找不到、不允許嵌入：改公開後才會好，每幾分鐘再試
+  if (s.err != null) return null;     // 其他錯誤代碼（網址錯）重載也沒用
   if (!s.p.getPlayerState) return 'load';
   let st; try { st = s.p.getPlayerState(); } catch(e){ return null; }
   if (st === 0) return 'ended';
@@ -688,13 +699,20 @@ function autoReload(now){
     const [need, cap, why] = AUTO[kind];
     if (now - s.probSince < need || now < (s.nextAutoAt || 0)) continue;
     s.autoN = (s.autoN || 0) + 1;
-    s.autoTotal = (s.autoTotal || 0) + 1;
     s.nextAutoAt = now + Math.min(cap, 30000 * 2 ** (s.autoN - 1));
-    s.autoLast = new Date(now).toLocaleTimeString('zh-TW', { hour12: false }) + ' ' + why;
+    const hhmm = new Date(now).toLocaleTimeString('zh-TW', { hour12: false });
     s.probKind = null;
     lastAutoAt = now;
-    reloadOne(s.item.key, true);
-    toast(`「${s.item.name}」${why}，已自動重載`);
+    if (kind === 'priv'){
+      s.retryErr = s.err; s.retryN = (s.retryN || 0) + 1; s.retryLast = hhmm.slice(0, 5);
+      reloadOne(s.item.key, true);
+      s.retryHold = now + RETRY_HOLD_MS;
+    } else {
+      s.autoTotal = (s.autoTotal || 0) + 1;
+      s.autoLast = hhmm + ' ' + why;
+      reloadOne(s.item.key, true);
+      toast(`「${s.item.name}」${why}，已自動重載`);
+    }
     done = true;
   }
 }
@@ -722,9 +740,12 @@ function tick(){
     vt.textContent = [grp, autoInfo, s.title].filter(Boolean).join('｜');
     vt.title = [s.title, s.autoTotal ? `自動重載 ${s.autoTotal} 次，最後一次 ${s.autoLast}` : ''].filter(Boolean).join('\n');
     const msg = t.querySelector('.msg');
-    if (s.err != null || apiFailed){
+    const e = errOf(s, now);
+    if (e != null || apiFailed){
       msg.hidden = false;
-      msg.textContent = apiFailed ? '連不到 YouTube，請檢查網路' : (ERR[s.err] || ('播放器錯誤代碼 ' + s.err));
+      const retry = RETRY_ERR.includes(e) && autoOn
+        ? `\n（每 3～4 分鐘自動再試一次，改公開後會自己出來${s.retryN ? `；已試 ${s.retryN} 次，最後 ${s.retryLast}` : ''}）` : '';
+      msg.textContent = apiFailed ? '連不到 YouTube，請檢查網路' : (ERR[e] || ('播放器錯誤代碼 ' + e)) + retry;
     } else msg.hidden = true;
     const on = !muted(s);
     t.classList.toggle('audio', on);
@@ -964,7 +985,7 @@ function lightsOf(s, now){
   const o = {};
   // 串流
   if (apiFailed) o.s = ['bad', '連不到 YouTube'];
-  else if (s.err != null) o.s = ['bad', '播放器錯誤'];
+  else if (errOf(s, now) != null) o.s = ['bad', '播放器錯誤'];
   else if (st === 0 || (L && L.state === 'ended')) o.s = ['bad', '直播已結束'];
   else if (stalled) o.s = ['warn', '播放卡住'];
   else if (st === 3) o.s = [bufS > 10 ? 'bad' : 'warn', bufS > 3 ? `緩衝 ${bufS} 秒` : '緩衝中'];
@@ -972,7 +993,7 @@ function lightsOf(s, now){
   else if (st === 2) o.s = ['warn', '暫停（自動續播中）'];
   else o.s = ['idle', L && L.state === 'upcoming' ? '還沒開播' + (startsText(L) ? `（${startsText(L)}）` : '') : '等待開播'];
   // 畫面
-  if (apiFailed || s.err != null) o.v = ['bad', '播放器錯誤'];
+  if (apiFailed || errOf(s, now) != null) o.v = ['bad', '播放器錯誤'];
   else if (stalled) o.v = ['bad', '畫面停住（播放器沒在動）'];
   else if (st !== 1 && st !== 3) o.v = ['idle', st === 0 ? '已結束' : '沒在播'];
   else if (V && V.black_s >= BLACK_WARN_S) o.v = [V.black_s >= BLACK_BAD_S ? 'bad' : 'warn', `全黑 ${secText(V.black_s)}`];
